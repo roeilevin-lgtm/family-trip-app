@@ -6,23 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#4f46e5" />
     <title>Family Trip Planner</title>
-    <!-- טעינת מערכת העיצוב (Tailwind) -->
-    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
-    <style>
-      /* מונע מהאפליקציה להיגרר למטה כמו דף אינטרנט רגיל באייפון */
-      body { overscroll-behavior-y: none; }
-    </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
-    <!-- הפעלת מנהל האופליין (Service Worker) -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js');
-        });
-      }
-    </script>
   </body>
 </html>
