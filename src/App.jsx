@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
-  Sun, Moon, Map, Calendar, Plus, Navigation, Clock, WifiOff, Trash2, Edit3, 
-  Briefcase, Camera, RefreshCw, UserCircle, MapPin, Wallet, Star, Ticket, 
-  PlaneTakeoff, Share2, Link as LinkIcon, Copy, X, CloudSun, 
-  ShieldCheck, ChevronRight, ChevronLeft, MapPinned, ArrowUp, ArrowDown, 
-  AlertOctagon, Calculator, CheckSquare, Square, Baby, CheckCircle, 
-  Image as ImageIcon, RefreshCcw, CloudRain, CloudLightning, SunMedium, BellRing, Info
+  Sun, Moon, Map, Calendar, Plus, Navigation, Clock, Trash2, Camera, 
+  UserCircle, MapPin, Wallet, CheckSquare, Square, 
+  Baby, CheckCircle, Image as ImageIcon, RefreshCcw, SunMedium, Info, MapPinned,
+  ArrowUp, ArrowDown, RefreshCw, Briefcase, AlertOctagon, Calculator,
+  ChevronRight, ChevronLeft
 } from 'lucide-react';
 
 /**
  * --- API CONFIGURATION ---
  */
-const API_URL = '[https://my-family-api.onrender.com/api/sync](https://my-family-api.onrender.com/api/sync)';
+const API_URL = 'https://my-family-api.onrender.com/api/sync';
 
 /**
  * --- APP CONSTANTS ---
@@ -22,13 +21,12 @@ const PACKING_DB_KEY = `${APP_ID}_packing`;
 const VAULT_DB_KEY = `${APP_ID}_vault`;
 const THEME_PREF_KEY = `${APP_ID}_theme_pref`;
 
+// הוגדרו 4 מטבעות בדיוק כפי שהתבקש
 const POPULAR_CURRENCIES = [
-  { code: 'EUR', label: '🇪🇺 אירו (€)', flag: '🇪🇺' },
-  { code: 'USD', label: '🇺🇸 דולר ארה"ב ($)', flag: '🇺🇸' },
-  { code: 'PLN', label: '🇵🇱 זלוטי פולני (zł)', flag: '🇵🇱' },
-  { code: 'HUF', label: '🇭🇺 פורינט הונגרי (Ft)', flag: '🇭🇺' },
-  { code: 'GBP', label: '🇬🇧 לירה שטרלינג (£)', flag: '🇬🇧' },
-  { code: 'THB', label: '🇹🇭 בהט תאילנדי (฿)', flag: '🇹🇭' }
+  { code: 'EUR', symbol: '€', flag: '🇪🇺' },
+  { code: 'USD', symbol: '$', flag: '🇺🇸' },
+  { code: 'PLN', symbol: 'zł', flag: '🇵🇱' },
+  { code: 'HUF', symbol: 'Ft', flag: '🇭🇺' }
 ];
 
 const ACTIVITY_TYPES = {
@@ -39,7 +37,7 @@ const ACTIVITY_TYPES = {
 };
 
 /**
- * --- UTILITIES & LOCAL STORAGE (IndexedDB) ---
+ * --- UTILITIES & LOCAL STORAGE (IndexedDB Wrapper) ---
  */
 const initDB = () => {
   return new Promise((resolve, reject) => {
@@ -105,9 +103,6 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-/**
- * SyncInput: פתרון תעשייתי לבעיית ה-Race Condition.
- */
 function SyncInput({ value, onSave, className, type = "text", ...props }) {
     const [localValue, setLocalValue] = useState(value || '');
     const [isFocused, setIsFocused] = useState(false);
@@ -137,7 +132,7 @@ function SyncInput({ value, onSave, className, type = "text", ...props }) {
         {...props}
       />
     );
-  }
+}
 
 /**
  * --- MAIN APPLICATION ---
@@ -146,6 +141,7 @@ function TripApp() {
   const [activities, setActivities] = useState({});
   const [packingList, setPackingList] = useState([]);
   const [vaultFiles, setVaultFiles] = useState([]);
+  const [mapLocations, setMapLocations] = useState([]); 
   
   const [currentDay, setCurrentDay] = useState("2026-07-17");
   const [themeMode, setThemeMode] = useState('auto');
@@ -170,28 +166,24 @@ function TripApp() {
   const [toastMessage, setToastMessage] = useState(null);
   
   const userMenuRef = useRef(null);
-  const dataRefs = useRef({ activities, packingList, vaultFiles });
+  const dataRefs = useRef({ activities, packingList, vaultFiles, mapLocations });
 
   const sortedDays = useMemo(() => Object.keys(activities).sort(), [activities]);
   const currentDayIndex = sortedDays.indexOf(currentDay);
 
   useEffect(() => {
-    dataRefs.current = { activities, packingList, vaultFiles };
-  }, [activities, packingList, vaultFiles]);
+    dataRefs.current = { activities, packingList, vaultFiles, mapLocations };
+  }, [activities, packingList, vaultFiles, mapLocations]);
 
   const showToast = useCallback((msg, duration = 3000) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), duration);
   }, []);
 
-  /**
-   * --- CLOUD SYNC: PUSH & PULL ---
-   */
   const pushToCloud = async (newData) => {
     if (!isOnline) return;
     setIsSyncing(true);
     
-    // ניקח את הנתונים המעודכנים ביותר מהרפרנס, ואת מה ששלחנו נדרוס ספציפית
     const payload = {
         activities: newData.activities || dataRefs.current.activities,
         packingList: newData.packingList || dataRefs.current.packingList,
@@ -233,44 +225,39 @@ function TripApp() {
           await saveLocally('packing', PACKING_DB_KEY, data.packingList);
           changed = true;
       }
-      
-      // טיפול מיוחד בכספת - לא נדרוס קבצים מקומיים שיש להם 'data' (בייס64) שעדיין לא הספיק להעלות
       if (data.vaultFiles && data.vaultFiles.length > 0) {
           const mergedVault = data.vaultFiles.map(cloudFile => {
               const localFile = dataRefs.current.vaultFiles.find(f => f.id === cloudFile.id);
               return localFile && localFile.data ? { ...cloudFile, data: localFile.data } : cloudFile;
           });
-          
           if (JSON.stringify(mergedVault) !== JSON.stringify(dataRefs.current.vaultFiles)) {
              setVaultFiles(mergedVault);
              await saveLocally('vault', VAULT_DB_KEY, mergedVault);
              changed = true;
           }
       }
+      if (data.mapLocations && JSON.stringify(data.mapLocations) !== JSON.stringify(dataRefs.current.mapLocations)) {
+          setMapLocations(data.mapLocations);
+          changed = true;
+      }
 
       if (!silent) {
           if (changed) showToast("סונכרן בהצלחה");
-          else showToast("מעודכן");
+          else showToast("המערכת מעודכנת");
       }
     } catch (error) {
       console.error("Pull failed:", error);
+      if (!silent) showToast("שגיאת סנכרון");
     } finally {
       if (!silent) setIsSyncing(false);
     }
   };
 
-  // Background Polling - קריאה חרישית כל 30 שניות ללא הפרעה למשתמש
   useEffect(() => {
-    const intervalId = setInterval(() => {
-        pullFromCloud(true);
-    }, 30000); 
+    const intervalId = setInterval(() => { pullFromCloud(true); }, 30000); 
     return () => clearInterval(intervalId);
   }, [isOnline]);
 
-
-  /**
-   * --- INITIALIZATION ---
-   */
   useEffect(() => {
     const initApp = async () => {
       const urlParams = new URLSearchParams(window.location.search);
@@ -296,10 +283,7 @@ function TripApp() {
       const savedTheme = localStorage.getItem(THEME_PREF_KEY);
       if (savedTheme) setThemeMode(savedTheme);
 
-      // משיכת נתונים מהענן בהפעלה ראשונית
-      if (navigator.onLine) {
-        pullFromCloud(true); // שקט כדי לא להפריע למשתמש עם קפיצות מיותרות בפתיחה
-      }
+      if (navigator.onLine) pullFromCloud(true); 
     };
     
     initApp();
@@ -327,13 +311,14 @@ function TripApp() {
     const hour = new Date().getHours();
     const target = themeMode === 'auto' ? ((hour >= 19 || hour < 6) ? 'dark' : 'light') : themeMode;
     setCurrentTheme(target);
-    document.documentElement.className = target;
+    if (target === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
     localStorage.setItem(THEME_PREF_KEY, themeMode);
   }, [themeMode]);
 
-  /**
-   * --- LOGIC HELPERS ---
-   */
   const addMinutes = (timeStr, mins) => {
     const [h, m] = timeStr.split(':').map(Number);
     const date = new Date();
@@ -348,7 +333,7 @@ function TripApp() {
     if (idx === -1) return;
 
     const original = dayActs[idx];
-    if (original[field] === value) return; // אופטימיזציה
+    if (original[field] === value) return;
 
     dayActs[idx] = { ...original, [field]: value };
     
@@ -406,19 +391,14 @@ function TripApp() {
   const goToNextDay = () => currentDayIndex < sortedDays.length - 1 && setCurrentDay(sortedDays[currentDayIndex + 1]);
   const goToPrevDay = () => currentDayIndex > 0 && setCurrentDay(sortedDays[currentDayIndex - 1]);
 
-  /**
-   * --- VAULT & PACKING ---
-   */
   const handleFileUpload = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     const r = new FileReader();
     r.onloadend = async () => {
-      // אנחנו שומרים את ה-base64 מקומית, כדי שיוצג מיד גם ללא רשת. השרת כבר ידאג להעלות אותו.
       const n = { id: Date.now().toString(), name: f.name, data: r.result, type: f.type };
       const updatedVault = [n, ...vaultFiles];
       setVaultFiles(updatedVault);
       await saveLocally('vault', VAULT_DB_KEY, updatedVault);
-      
       showToast("מעלה את הקובץ לכספת הענן...");
       pushToCloud({ vaultFiles: updatedVault });
     };
@@ -447,14 +427,11 @@ function TripApp() {
     pushToCloud({ packingList: updatedPacking });
   };
 
-  /**
-   * --- FX & WEATHER ---
-   */
    const fetchFXRates = async () => {
     if (!isOnline) return;
     setIsFetchingFx(true);
     try {
-      const res = await fetch('[https://open.er-api.com/v6/latest/ILS](https://open.er-api.com/v6/latest/ILS)');
+      const res = await fetch('https://open.er-api.com/v6/latest/ILS');
       const data = await res.json();
       if (data?.rates) {
         const inv = {};
@@ -484,9 +461,6 @@ function TripApp() {
   useEffect(() => { fetchWeather(); }, [currentDay, isOnline]);
   useEffect(() => { if (isAutoRate && exchangeRates[selectedCurrency]) setExchangeRate(Number(exchangeRates[selectedCurrency].toFixed(4))); }, [selectedCurrency, exchangeRates, isAutoRate]);
 
-  /**
-   * --- RENDERING ---
-   */
   const themeClass = currentTheme === 'dark' ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900';
   
   const stats = useMemo(() => {
@@ -500,6 +474,48 @@ function TripApp() {
 
   const renderSecondaryPane = () => {
     const pane = activeTab === 'schedule' ? 'map' : activeTab;
+    
+    if (pane === 'map') return (
+        <div className="space-y-6 animate-in">
+            <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-black">מיקומים שמורים</h2>
+                <div className="text-[10px] bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full font-bold text-slate-500 flex items-center gap-1">
+                    <MapPinned size={12}/> מסונכרן לדרייב
+                </div>
+            </div>
+            
+            {mapLocations.length === 0 ? (
+                <div className="p-10 text-center text-slate-400 bg-white dark:bg-slate-800 rounded-[2.5rem] border border-dashed border-slate-200 dark:border-slate-700 shadow-sm">
+                    <MapPinned size={48} className="mx-auto mb-4 opacity-20"/>
+                    <p className="font-bold">אין מיקומים שמורים.</p>
+                    <p className="text-xs mt-2">הורד קובץ KML מהמפה שלך וזרוק בתיקיית הדרייב המשותפת לסנכרון.</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {mapLocations.map((loc, idx) => (
+                        <a 
+                            key={idx} 
+                            href={`https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-5 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-3xl flex items-center justify-between shadow-sm hover:shadow-md transition-all group active:scale-95"
+                        >
+                            <div className="flex items-center gap-4">
+                                <div className="p-3 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-2xl group-hover:scale-110 transition-transform">
+                                    <MapPin size={20} fill="currentColor"/>
+                                </div>
+                                <h3 className="font-bold text-lg text-slate-700 dark:text-slate-200">{loc.name}</h3>
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                                <Navigation size={18}/>
+                            </div>
+                        </a>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+
     if (pane === 'vault') return (
         <div className="space-y-6 animate-in">
             <div className="flex justify-between items-center">
@@ -508,7 +524,6 @@ function TripApp() {
             </div>
             <div className="grid grid-cols-2 gap-4">
                 {vaultFiles.map(f => {
-                    // תיעדוף: קודם ה-URL שמגיע מ-Google Drive, אם אין אז את הבייס64 המקומי
                     const imageSource = f.url || f.data;
                     return (
                     <div key={f.id} className="relative aspect-[3/4] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 group shadow-sm">
@@ -540,18 +555,30 @@ function TripApp() {
         <div className="space-y-6 animate-in">
             <h2 className="text-3xl font-black">ארנק ומט"ח</h2>
             <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 shadow-sm space-y-6">
-                <div className="flex flex-wrap gap-2">
-                    {['EUR', 'USD', 'PLN', 'HUF'].map(c => (
-                        <button key={c} onClick={() => setSelectedCurrency(c)} className={`px-4 py-2 rounded-xl text-sm font-black transition-all ${selectedCurrency === c ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'}`}>
-                            {POPULAR_CURRENCIES.find(p=>p.code===c)?.flag} {c}
+                
+                {/* 4 המטבעות בשורה אחת */}
+                <div className="grid grid-cols-4 gap-2 w-full bg-slate-50 dark:bg-slate-900/50 p-2 rounded-3xl">
+                    {POPULAR_CURRENCIES.map(c => (
+                        <button 
+                            key={c.code} 
+                            onClick={() => setSelectedCurrency(c.code)} 
+                            className={`py-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all ${selectedCurrency === c.code ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-600/30' : 'bg-transparent text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                        >
+                            <span className="text-2xl block">{c.flag}</span>
+                            <span className="text-[11px] sm:text-xs font-black tracking-tight">{c.code} {c.symbol}</span>
                         </button>
                     ))}
                 </div>
+
                 <div className="space-y-4">
                     <div className="flex items-center gap-4">
                         <div className="flex-1 relative">
-                            <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className="w-full p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-left dir-ltr focus:ring-2 focus:ring-indigo-500" />
-                            <span className="absolute right-4 top-1/2 -translate-y-1/2 font-black text-slate-400">{selectedCurrency}</span>
+                            {/* פדינג שמאלי מורחב (pl-20) מונע מהמספר לדרוס את תווית המטבע */}
+                            <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className="w-full py-4 pr-4 pl-20 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-right focus:ring-2 focus:ring-indigo-500" />
+                            <div className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 flex items-center gap-1.5">
+                                <span className="text-lg">{POPULAR_CURRENCIES.find(p => p.code === selectedCurrency)?.flag}</span>
+                                <span>{selectedCurrency}</span>
+                            </div>
                         </div>
                         <div className="text-2xl text-slate-300 font-black">=</div>
                         <div className="flex-1 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 font-black text-lg text-left dir-ltr border border-indigo-100 dark:border-indigo-800">
@@ -564,31 +591,13 @@ function TripApp() {
                     <button onClick={fetchFXRates} className="flex items-center gap-1 text-indigo-500 hover:underline"><RefreshCcw size={12} className={isFetchingFx ? 'animate-spin' : ''}/> רענן</button>
                 </div>
             </div>
-            <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 flex flex-col items-center text-center gap-4 shadow-sm group hover:shadow-md transition-shadow">
-                <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner group-hover:scale-110 transition-transform"><Ticket size={32}/></div>
-                <div><h3 className="font-black text-sm">כרטיס טיסה EZY214</h3><p className="text-xs text-slate-400">EasyJet • 10/03/2026</p></div>
-                <img src="[https://www.gstatic.com/wallet/badge/en_US.svg](https://www.gstatic.com/wallet/badge/en_US.svg)" className="h-10 cursor-pointer hover:opacity-80 transition-opacity" alt="Add to Wallet" />
-            </div>
-        </div>
-    );
-    return (
-        <div className="space-y-6 animate-in">
-            <h2 className="text-3xl font-black">מיקומים שמורים</h2>
-            <div className="space-y-4">
-                {["שדה תעופה", "מלון מרכזי", "שמורת טבע"].map(p => (
-                    <div key={p} className="p-5 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-3xl flex items-center gap-4 shadow-sm hover:shadow-md transition-all group">
-                        <div className="p-3 bg-yellow-400 text-white rounded-2xl shadow-lg group-hover:scale-110 transition-transform"><Star size={24} fill="currentColor"/></div>
-                        <h3 className="font-bold text-slate-700 dark:text-slate-200">{p}</h3>
-                    </div>
-                ))}
-            </div>
         </div>
     );
   };
 
   return (
     <div dir="rtl" className={`min-h-screen flex flex-col transition-all duration-500 font-sans ${themeClass}`}>
-      {toastMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 font-bold text-sm">{toastMessage}</div>}
+      {toastMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 font-bold text-sm whitespace-nowrap">{toastMessage}</div>}
 
       <header className={`sticky top-0 z-50 border-b p-3 flex items-center justify-between backdrop-blur-xl ${currentTheme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-slate-200 shadow-sm'} ${isKidsMode ? 'border-b-4 border-b-yellow-400' : ''}`}>
         <div className="flex items-center gap-3">
@@ -633,11 +642,11 @@ function TripApp() {
             )}
 
             <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-3xl shadow-inner overflow-x-auto no-scrollbar scroll-smooth">
-                {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToPrevDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronRight size={20}/></button>}
+                <button onClick={goToPrevDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronRight size={20}/></button>
                 {sortedDays.map((day, idx) => (
                     <button key={day} onClick={() => setCurrentDay(day)} className={`px-6 py-3 rounded-2xl font-black text-sm shrink-0 transition-all ${currentDay === day ? (isKidsMode ? 'bg-yellow-400 text-slate-900 shadow-md scale-105' : 'bg-indigo-600 text-white shadow-lg scale-105') : 'bg-white dark:bg-slate-700 text-slate-400'}`}>יום {idx+1}</button>
                 ))}
-                {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToNextDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronLeft size={20}/></button>}
+                <button onClick={goToNextDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronLeft size={20}/></button>
             </div>
 
             <section className="space-y-6">
