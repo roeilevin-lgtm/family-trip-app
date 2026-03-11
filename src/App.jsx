@@ -4,7 +4,7 @@ import {
   UserCircle, MapPin, Wallet, CheckSquare, Square, 
   Baby, CheckCircle, Image as ImageIcon, RefreshCcw, SunMedium, Info, MapPinned,
   ArrowUp, ArrowDown, RefreshCw, Briefcase, AlertOctagon, Calculator,
-  ChevronRight, ChevronLeft
+  ChevronRight, ChevronLeft, FileText, X
 } from 'lucide-react';
 
 /**
@@ -20,8 +20,8 @@ const DB_KEY = `${APP_ID}_db`;
 const PACKING_DB_KEY = `${APP_ID}_packing`;
 const VAULT_DB_KEY = `${APP_ID}_vault`;
 const THEME_PREF_KEY = `${APP_ID}_theme_pref`;
+const USER_IDENTITY_KEY = `${APP_ID}_identity`;
 
-// הוגדרו 4 מטבעות בדיוק כפי שהתבקש
 const POPULAR_CURRENCIES = [
   { code: 'EUR', symbol: '€', flag: '🇪🇺' },
   { code: 'USD', symbol: '$', flag: '🇺🇸' },
@@ -143,6 +143,8 @@ function TripApp() {
   const [vaultFiles, setVaultFiles] = useState([]);
   const [mapLocations, setMapLocations] = useState([]); 
   
+  const [currentUser, setCurrentUser] = useState(localStorage.getItem(USER_IDENTITY_KEY) || 'אורח');
+  
   const [currentDay, setCurrentDay] = useState("2026-07-17");
   const [themeMode, setThemeMode] = useState('auto');
   const [currentTheme, setCurrentTheme] = useState('light');
@@ -174,6 +176,10 @@ function TripApp() {
   useEffect(() => {
     dataRefs.current = { activities, packingList, vaultFiles, mapLocations };
   }, [activities, packingList, vaultFiles, mapLocations]);
+
+  useEffect(() => {
+    localStorage.setItem(USER_IDENTITY_KEY, currentUser);
+  }, [currentUser]);
 
   const showToast = useCallback((msg, duration = 3000) => {
     setToastMessage(msg);
@@ -225,17 +231,25 @@ function TripApp() {
           await saveLocally('packing', PACKING_DB_KEY, data.packingList);
           changed = true;
       }
+      
       if (data.vaultFiles && data.vaultFiles.length > 0) {
           const mergedVault = data.vaultFiles.map(cloudFile => {
               const localFile = dataRefs.current.vaultFiles.find(f => f.id === cloudFile.id);
-              return localFile && localFile.data ? { ...cloudFile, data: localFile.data } : cloudFile;
+              const isPinned = cloudFile.type?.includes('pinned') || (localFile && localFile.pinnedToWallet);
+              return {
+                  ...cloudFile, 
+                  data: localFile ? localFile.data : undefined,
+                  pinnedToWallet: isPinned
+              };
           });
+          
           if (JSON.stringify(mergedVault) !== JSON.stringify(dataRefs.current.vaultFiles)) {
              setVaultFiles(mergedVault);
              await saveLocally('vault', VAULT_DB_KEY, mergedVault);
              changed = true;
           }
       }
+
       if (data.mapLocations && JSON.stringify(data.mapLocations) !== JSON.stringify(dataRefs.current.mapLocations)) {
           setMapLocations(data.mapLocations);
           changed = true;
@@ -395,7 +409,7 @@ function TripApp() {
     const f = e.target.files[0]; if (!f) return;
     const r = new FileReader();
     r.onloadend = async () => {
-      const n = { id: Date.now().toString(), name: f.name, data: r.result, type: f.type };
+      const n = { id: Date.now().toString(), name: f.name, data: r.result, type: f.type, pinnedToWallet: false };
       const updatedVault = [n, ...vaultFiles];
       setVaultFiles(updatedVault);
       await saveLocally('vault', VAULT_DB_KEY, updatedVault);
@@ -412,9 +426,24 @@ function TripApp() {
       pushToCloud({ vaultFiles: updatedVault });
   };
 
+  const toggleVaultPin = async (id) => {
+      const updatedVault = vaultFiles.map(f => {
+          if (f.id === id) {
+              const isNowPinned = !f.pinnedToWallet;
+              const newType = isNowPinned ? (f.type ? f.type + '_pinned' : 'pinned') : (f.type ? f.type.replace('_pinned', '').replace('pinned', '') : '');
+              return { ...f, pinnedToWallet: isNowPinned, type: newType };
+          }
+          return f;
+      });
+      setVaultFiles(updatedVault);
+      await saveLocally('vault', VAULT_DB_KEY, updatedVault);
+      pushToCloud({ vaultFiles: updatedVault });
+      showToast("סטטוס נעץ עודכן");
+  };
+
   const addPackingItem = async () => {
     const t = prompt('הכנס פריט:'); if (!t) return;
-    const updatedPacking = [{ id: Date.now().toString(), text: t, checked: false }, ...packingList];
+    const updatedPacking = [{ id: Date.now().toString(), text: t, checked: false, owner: currentUser }, ...packingList];
     setPackingList(updatedPacking);
     await saveLocally('packing', PACKING_DB_KEY, updatedPacking);
     pushToCloud({ packingList: updatedPacking });
@@ -480,7 +509,7 @@ function TripApp() {
             <div className="flex justify-between items-center">
                 <h2 className="text-3xl font-black">מיקומים שמורים</h2>
                 <div className="text-[10px] bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full font-bold text-slate-500 flex items-center gap-1">
-                    <MapPinned size={12}/> מסונכרן לדרייב
+                    <MapPinned size={12}/> מסונכרן למפה
                 </div>
             </div>
             
@@ -488,7 +517,7 @@ function TripApp() {
                 <div className="p-10 text-center text-slate-400 bg-white dark:bg-slate-800 rounded-[2.5rem] border border-dashed border-slate-200 dark:border-slate-700 shadow-sm">
                     <MapPinned size={48} className="mx-auto mb-4 opacity-20"/>
                     <p className="font-bold">אין מיקומים שמורים.</p>
-                    <p className="text-xs mt-2">הורד קובץ KML מהמפה שלך וזרוק בתיקיית הדרייב המשותפת לסנכרון.</p>
+                    <p className="text-xs mt-2">הוסף קובץ KML לתיקיית הדרייב המשותפת כדי לסנכרן אותם לכאן.</p>
                 </div>
             ) : (
                 <div className="space-y-3">
@@ -520,14 +549,33 @@ function TripApp() {
         <div className="space-y-6 animate-in">
             <div className="flex justify-between items-center">
                 <h2 className="text-3xl font-black">כספת (Vault)</h2>
-                <label className="p-3 bg-indigo-600 text-white rounded-2xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all"><Camera size={20}/><input type="file" className="hidden" onChange={handleFileUpload} /></label>
+                <label className="p-3 bg-indigo-600 text-white rounded-2xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all"><Camera size={20}/><input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileUpload} /></label>
             </div>
             <div className="grid grid-cols-2 gap-4">
                 {vaultFiles.map(f => {
-                    const imageSource = f.url || f.data;
+                    const fileSource = f.url || f.data;
+                    const isPdf = f.name.toLowerCase().endsWith('.pdf') || (f.type && f.type.includes('pdf')) || (f.data && f.data.includes('application/pdf'));
+
                     return (
-                    <div key={f.id} className="relative aspect-[3/4] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 group shadow-sm">
-                        {imageSource ? <img src={imageSource} className="w-full h-full object-cover" alt={f.name} /> : <div className="flex items-center justify-center h-full text-slate-300"><ImageIcon size={48}/></div>}
+                    <div key={f.id} className="relative aspect-[3/4] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 group shadow-sm flex flex-col">
+                        {isPdf ? (
+                            <div className="flex-1 flex flex-col items-center justify-center p-4 text-center bg-slate-50 dark:bg-slate-800/50">
+                                <FileText size={48} className="text-red-500 mb-3 drop-shadow-sm"/>
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate w-full px-2" dir="ltr">{f.name}</span>
+                                <a href={fileSource} download={f.name} className="mt-4 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-xl hover:bg-indigo-200 transition-colors uppercase tracking-wide">הורד מסמך</a>
+                            </div>
+                        ) : (
+                            fileSource ? <img src={fileSource} className="w-full h-full object-cover" alt={f.name} /> : <div className="flex items-center justify-center h-full text-slate-300"><ImageIcon size={48}/></div>
+                        )}
+                        
+                        <button 
+                            onClick={() => toggleVaultPin(f.id)} 
+                            title="הצג בארנק"
+                            className={`absolute top-2 left-2 p-2 rounded-full shadow-md transition-all ${f.pinnedToWallet ? 'bg-yellow-400 text-white scale-110' : 'bg-slate-100/80 text-slate-500 hover:bg-white'}`}
+                        >
+                            <Wallet size={14}/>
+                        </button>
+
                         <button onClick={() => removeVaultFile(f.id)} className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md"><Trash2 size={12}/></button>
                     </div>
                 )})}
@@ -542,57 +590,105 @@ function TripApp() {
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 overflow-hidden shadow-sm">
                 {packingList.map(item => (
-                    <div key={item.id} onClick={() => togglePackingItem(item.id)} className="p-5 border-b last:border-0 dark:border-slate-700 flex items-center gap-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
-                        {item.checked ? <CheckSquare className="text-green-500"/> : <Square className="text-slate-300"/>}
-                        <span className={`font-bold ${item.checked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{item.text}</span>
+                    <div key={item.id} onClick={() => togglePackingItem(item.id)} className="p-5 border-b last:border-0 dark:border-slate-700 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                        <div className="flex items-center gap-4">
+                            {item.checked ? <CheckSquare className="text-green-500 shrink-0"/> : <Square className="text-slate-300 shrink-0"/>}
+                            <span className={`font-bold ${item.checked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{item.text}</span>
+                        </div>
+                        {item.owner && (
+                            <span className="text-[9px] bg-slate-100 dark:bg-slate-700 text-slate-500 font-bold px-2 py-1 rounded-full shrink-0">
+                                {item.owner}
+                            </span>
+                        )}
                     </div>
                 ))}
                 {packingList.length === 0 && <div className="p-8 text-center text-slate-400">הרשימה ריקה</div>}
             </div>
         </div>
     );
-    if (pane === 'wallet') return (
-        <div className="space-y-6 animate-in">
-            <h2 className="text-3xl font-black">ארנק ומט"ח</h2>
-            <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 shadow-sm space-y-6">
-                
-                {/* 4 המטבעות בשורה אחת */}
-                <div className="grid grid-cols-4 gap-2 w-full bg-slate-50 dark:bg-slate-900/50 p-2 rounded-3xl">
-                    {POPULAR_CURRENCIES.map(c => (
-                        <button 
-                            key={c.code} 
-                            onClick={() => setSelectedCurrency(c.code)} 
-                            className={`py-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all ${selectedCurrency === c.code ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-600/30' : 'bg-transparent text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
-                        >
-                            <span className="text-2xl block">{c.flag}</span>
-                            <span className="text-[11px] sm:text-xs font-black tracking-tight">{c.code} {c.symbol}</span>
-                        </button>
-                    ))}
-                </div>
+    if (pane === 'wallet') {
+        const pinnedFiles = vaultFiles.filter(f => f.pinnedToWallet);
+        
+        return (
+            <div className="space-y-8 animate-in">
+                <div>
+                    <h2 className="text-3xl font-black mb-6">ארנק ומט"ח</h2>
+                    <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 shadow-sm space-y-6">
+                        
+                        <div className="grid grid-cols-4 gap-2 w-full bg-slate-50 dark:bg-slate-900/50 p-2 rounded-3xl">
+                            {POPULAR_CURRENCIES.map(c => (
+                                <button 
+                                    key={c.code} 
+                                    onClick={() => setSelectedCurrency(c.code)} 
+                                    className={`py-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all ${selectedCurrency === c.code ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-600/30' : 'bg-transparent text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                                >
+                                    <span className="text-2xl block">{c.flag}</span>
+                                    <span className="text-[11px] sm:text-xs font-black tracking-tight">{c.code} {c.symbol}</span>
+                                </button>
+                            ))}
+                        </div>
 
-                <div className="space-y-4">
-                    <div className="flex items-center gap-4">
-                        <div className="flex-1 relative">
-                            {/* פדינג שמאלי מורחב (pl-20) מונע מהמספר לדרוס את תווית המטבע */}
-                            <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className="w-full py-4 pr-4 pl-20 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-right focus:ring-2 focus:ring-indigo-500" />
-                            <div className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 flex items-center gap-1.5">
-                                <span className="text-lg">{POPULAR_CURRENCIES.find(p => p.code === selectedCurrency)?.flag}</span>
-                                <span>{selectedCurrency}</span>
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-4">
+                                <div className="flex-1 relative">
+                                    <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className="w-full py-4 pr-4 pl-20 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-right focus:ring-2 focus:ring-indigo-500" />
+                                    <div className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 flex items-center gap-1.5">
+                                        <span className="text-lg">{POPULAR_CURRENCIES.find(p => p.code === selectedCurrency)?.flag}</span>
+                                        <span>{selectedCurrency}</span>
+                                    </div>
+                                </div>
+                                <div className="text-2xl text-slate-300 font-black">=</div>
+                                <div className="flex-1 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 font-black text-lg text-left dir-ltr border border-indigo-100 dark:border-indigo-800">
+                                    {(Number(foreignAmount) * exchangeRate).toFixed(2)} ₪
+                                </div>
                             </div>
                         </div>
-                        <div className="text-2xl text-slate-300 font-black">=</div>
-                        <div className="flex-1 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 font-black text-lg text-left dir-ltr border border-indigo-100 dark:border-indigo-800">
-                            {(Number(foreignAmount) * exchangeRate).toFixed(2)} ₪
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border dark:border-slate-700">
+                            <span className="flex items-center gap-2"><Info size={14}/> שער המרה יציג: {exchangeRate}</span>
+                            <button onClick={fetchFXRates} className="flex items-center gap-1 text-indigo-500 hover:underline"><RefreshCcw size={12} className={isFetchingFx ? 'animate-spin' : ''}/> רענן</button>
                         </div>
                     </div>
                 </div>
-                <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border dark:border-slate-700">
-                    <span className="flex items-center gap-2"><Info size={14}/> שער המרה: {exchangeRate}</span>
-                    <button onClick={fetchFXRates} className="flex items-center gap-1 text-indigo-500 hover:underline"><RefreshCcw size={12} className={isFetchingFx ? 'animate-spin' : ''}/> רענן</button>
+
+                <div>
+                    <h3 className="text-xl font-black mb-4 px-2">מסמכים וכרטיסים לשליפה מהירה</h3>
+                    {pinnedFiles.length === 0 ? (
+                        <div className="text-sm text-slate-400 text-center py-8 bg-white/50 dark:bg-slate-800/50 border border-dashed border-slate-200 dark:border-slate-700 rounded-3xl">
+                            אין מסמכים נעוצים.<br/>כדי להוסיף מסמך לגישה מהירה, עבור ללשונית ה"כספת" ולחץ על סמל הארנק בפינת הקובץ.
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-4">
+                            {pinnedFiles.map(f => {
+                                const fileSource = f.url || f.data;
+                                const isPdf = f.name.toLowerCase().endsWith('.pdf') || (f.type && f.type.includes('pdf')) || (f.data && f.data.includes('application/pdf'));
+                                
+                                return (
+                                    <div key={f.id} className="relative aspect-video rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm flex flex-col">
+                                        {isPdf ? (
+                                            <div className="flex-1 flex flex-col items-center justify-center p-2 text-center">
+                                                <FileText size={24} className="text-red-500 mb-1"/>
+                                                <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 truncate w-full px-1" dir="ltr">{f.name}</span>
+                                                <a href={fileSource} download={f.name} className="mt-1 px-3 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[9px] font-black rounded-lg">צפה</a>
+                                            </div>
+                                        ) : (
+                                            <img src={fileSource} className="w-full h-full object-cover" alt={f.name} />
+                                        )}
+                                        <button 
+                                            onClick={() => toggleVaultPin(f.id)} 
+                                            className="absolute top-1 left-1 p-1.5 bg-slate-900/50 text-white rounded-full hover:bg-red-500 transition-colors"
+                                            title="הסר מהארנק"
+                                        >
+                                            <X size={10}/>
+                                        </button>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
                 </div>
             </div>
-        </div>
-    );
+        );
+    }
   };
 
   return (
@@ -616,11 +712,23 @@ function TripApp() {
               </button>
           )}
           <button onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')} className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors">{currentTheme === 'dark' ? <Moon size={20}/> : <Sun size={20}/>}</button>
+          
+          {/* מנגנון זהות משתמש משופר */}
           <div className="relative" ref={userMenuRef}>
             <button onClick={() => setShowUserMenu(!showUserMenu)} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-indigo-500 transition-colors shadow-inner"><UserCircle size={28}/></button>
             {showUserMenu && (
-                <div className="absolute left-0 mt-3 w-56 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-3xl shadow-2xl p-4 animate-in zoom-in-95 origin-top-left z-[60]">
-                    <button onClick={() => { setIsKidsMode(!isKidsMode); setShowUserMenu(false); }} className={`w-full py-3 font-bold rounded-2xl flex items-center justify-center gap-2 transition-all ${isKidsMode ? 'bg-slate-100 text-slate-700' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'}`}><Baby size={18}/> {isKidsMode ? 'צא ממצב ילדים' : 'מצב ילדים'}</button>
+                <div className="absolute left-0 mt-3 w-64 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-3xl shadow-2xl p-5 animate-in zoom-in-95 origin-top-left z-[60]">
+                    <div className="mb-5">
+                        <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">מי משתמש באפליקציה?</label>
+                        <input
+                            type="text"
+                            value={currentUser}
+                            onChange={(e) => setCurrentUser(e.target.value)}
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            placeholder="הכנס את שמך..."
+                        />
+                    </div>
+                    <button onClick={() => { setIsKidsMode(!isKidsMode); setShowUserMenu(false); }} className={`w-full py-3 font-bold rounded-2xl flex items-center justify-center gap-2 transition-all ${isKidsMode ? 'bg-slate-100 text-slate-700' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'}`}><Baby size={18}/> {isKidsMode ? 'צא ממצב ילדים' : 'הפעל מצב ילדים'}</button>
                 </div>
             )}
           </div>
