@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { 
   Sun, Moon, Map, Calendar, Plus, Navigation, Clock, WifiOff, Trash2, Edit3, 
   Briefcase, Camera, RefreshCw, UserCircle, MapPin, Wallet, Star, Ticket, 
-  PlaneTakeoff, Share2, Link as LinkIcon, Copy, X, GripVertical, CloudSun, 
+  PlaneTakeoff, Share2, Link as LinkIcon, Copy, X, CloudSun, 
   ShieldCheck, ChevronRight, ChevronLeft, MapPinned, ArrowUp, ArrowDown, 
   AlertOctagon, Calculator, CheckSquare, Square, Baby, CheckCircle, 
   Image as ImageIcon, RefreshCcw, CloudRain, CloudLightning, SunMedium, BellRing, Info
@@ -16,7 +16,7 @@ const API_URL = '[https://my-family-api.onrender.com/api/sync](https://my-family
 /**
  * --- APP CONSTANTS ---
  */
-const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'family-trip-v25';
+const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'family-trip-final';
 const DB_KEY = `${APP_ID}_db`;
 const PACKING_DB_KEY = `${APP_ID}_packing`;
 const VAULT_DB_KEY = `${APP_ID}_vault`;
@@ -43,7 +43,7 @@ const ACTIVITY_TYPES = {
  */
 const initDB = () => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('FamilyTripDB_v3', 3); 
+    const request = indexedDB.open('FamilyTripDB_v4', 4); 
     request.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('trips')) db.createObjectStore('trips');
@@ -107,31 +107,22 @@ class ErrorBoundary extends React.Component {
 
 /**
  * SyncInput: פתרון תעשייתי לבעיית ה-Race Condition.
- * מנהל את ההקלדה מקומית מבלי להיות מושפע משינויי רקע בשרת,
- * ורק בסיום ההקלדה דוחף את התוצאה למעלה.
  */
 function SyncInput({ value, onSave, className, type = "text", ...props }) {
     const [localValue, setLocalValue] = useState(value || '');
     const [isFocused, setIsFocused] = useState(false);
   
-    // כשהשרת שולח נתונים חדשים, נעכן את השדה *רק* אם המשתמש לא מקליד בו כרגע
     useEffect(() => {
-      if (!isFocused) {
-        setLocalValue(value || '');
-      }
+      if (!isFocused) setLocalValue(value || '');
     }, [value, isFocused]);
   
     const handleBlur = () => {
       setIsFocused(false);
-      if (localValue !== (value || '')) {
-        onSave(localValue);
-      }
+      if (localValue !== (value || '')) onSave(localValue);
     };
   
     const handleKeyDown = (e) => {
-      if (e.key === 'Enter') {
-        e.target.blur(); // מעביר פוקוס החוצה ושומר
-      }
+      if (e.key === 'Enter') e.target.blur();
     };
   
     return (
@@ -179,14 +170,14 @@ function TripApp() {
   const [toastMessage, setToastMessage] = useState(null);
   
   const userMenuRef = useRef(null);
-  const activitiesRef = useRef(activities);
+  const dataRefs = useRef({ activities, packingList, vaultFiles });
 
   const sortedDays = useMemo(() => Object.keys(activities).sort(), [activities]);
   const currentDayIndex = sortedDays.indexOf(currentDay);
 
   useEffect(() => {
-    activitiesRef.current = activities;
-  }, [activities]);
+    dataRefs.current = { activities, packingList, vaultFiles };
+  }, [activities, packingList, vaultFiles]);
 
   const showToast = useCallback((msg, duration = 3000) => {
     setToastMessage(msg);
@@ -196,19 +187,26 @@ function TripApp() {
   /**
    * --- CLOUD SYNC: PUSH & PULL ---
    */
-  const pushToCloud = async (currentActivities) => {
+  const pushToCloud = async (newData) => {
     if (!isOnline) return;
     setIsSyncing(true);
+    
+    // ניקח את הנתונים המעודכנים ביותר מהרפרנס, ואת מה ששלחנו נדרוס ספציפית
+    const payload = {
+        activities: newData.activities || dataRefs.current.activities,
+        packingList: newData.packingList || dataRefs.current.packingList,
+        vaultFiles: newData.vaultFiles || dataRefs.current.vaultFiles
+    };
+
     try {
       const response = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activities: currentActivities }),
+        body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error("Server rejected request");
     } catch (error) {
       console.error("Push failed:", error);
-      showToast("שגיאת סנכרון לענן.");
     } finally {
       setIsSyncing(false);
     }
@@ -223,14 +221,36 @@ function TripApp() {
       if (!response.ok) throw new Error("Server rejected pull request");
       const data = await response.json();
       
-      if (data.activities && Object.keys(data.activities).length > 0) {
-        if (JSON.stringify(data.activities) !== JSON.stringify(activitiesRef.current)) {
-            setActivities(data.activities);
-            await saveLocally('trips', DB_KEY, data.activities);
-            if (!silent) showToast("סונכרן בהצלחה");
-        } else {
-            if (!silent) showToast("מעודכן");
-        }
+      let changed = false;
+
+      if (data.activities && JSON.stringify(data.activities) !== JSON.stringify(dataRefs.current.activities)) {
+          setActivities(data.activities);
+          await saveLocally('trips', DB_KEY, data.activities);
+          changed = true;
+      }
+      if (data.packingList && JSON.stringify(data.packingList) !== JSON.stringify(dataRefs.current.packingList)) {
+          setPackingList(data.packingList);
+          await saveLocally('packing', PACKING_DB_KEY, data.packingList);
+          changed = true;
+      }
+      
+      // טיפול מיוחד בכספת - לא נדרוס קבצים מקומיים שיש להם 'data' (בייס64) שעדיין לא הספיק להעלות
+      if (data.vaultFiles && data.vaultFiles.length > 0) {
+          const mergedVault = data.vaultFiles.map(cloudFile => {
+              const localFile = dataRefs.current.vaultFiles.find(f => f.id === cloudFile.id);
+              return localFile && localFile.data ? { ...cloudFile, data: localFile.data } : cloudFile;
+          });
+          
+          if (JSON.stringify(mergedVault) !== JSON.stringify(dataRefs.current.vaultFiles)) {
+             setVaultFiles(mergedVault);
+             await saveLocally('vault', VAULT_DB_KEY, mergedVault);
+             changed = true;
+          }
+      }
+
+      if (!silent) {
+          if (changed) showToast("סונכרן בהצלחה");
+          else showToast("מעודכן");
       }
     } catch (error) {
       console.error("Pull failed:", error);
@@ -267,10 +287,6 @@ function TripApp() {
         });
       }
 
-      if (navigator.onLine) {
-        pullFromCloud(false);
-      }
-
       const savedPacking = await loadLocally('packing', PACKING_DB_KEY);
       if (savedPacking) setPackingList(savedPacking);
 
@@ -279,6 +295,11 @@ function TripApp() {
       
       const savedTheme = localStorage.getItem(THEME_PREF_KEY);
       if (savedTheme) setThemeMode(savedTheme);
+
+      // משיכת נתונים מהענן בהפעלה ראשונית
+      if (navigator.onLine) {
+        pullFromCloud(true); // שקט כדי לא להפריע למשתמש עם קפיצות מיותרות בפתיחה
+      }
     };
     
     initApp();
@@ -327,9 +348,7 @@ function TripApp() {
     if (idx === -1) return;
 
     const original = dayActs[idx];
-    
-    // אופטימיזציה: אל תדחוף לשרת אם הערך לא באמת השתנה
-    if (original[field] === value) return;
+    if (original[field] === value) return; // אופטימיזציה
 
     dayActs[idx] = { ...original, [field]: value };
     
@@ -346,7 +365,7 @@ function TripApp() {
     const updatedActivities = { ...activities, [currentDay]: dayActs };
     setActivities(updatedActivities);
     await saveLocally('trips', DB_KEY, updatedActivities);
-    pushToCloud(updatedActivities);
+    pushToCloud({ activities: updatedActivities });
   };
 
   const addActivity = async () => {
@@ -355,7 +374,7 @@ function TripApp() {
     const updatedActivities = { ...activities, [currentDay]: [n, ...(activities[currentDay] || [])] };
     setActivities(updatedActivities);
     await saveLocally('trips', DB_KEY, updatedActivities);
-    pushToCloud(updatedActivities);
+    pushToCloud({ activities: updatedActivities });
   };
 
   const removeActivity = async (id) => {
@@ -363,7 +382,7 @@ function TripApp() {
     const updatedActivities = { ...activities, [currentDay]: activities[currentDay].filter(a => a.id !== id) };
     setActivities(updatedActivities);
     await saveLocally('trips', DB_KEY, updatedActivities);
-    pushToCloud(updatedActivities);
+    pushToCloud({ activities: updatedActivities });
   };
 
   const cycleType = (id, type) => {
@@ -381,7 +400,7 @@ function TripApp() {
     const updatedActivities = { ...activities, [currentDay]: dayActivities };
     setActivities(updatedActivities);
     await saveLocally('trips', DB_KEY, updatedActivities);
-    pushToCloud(updatedActivities);
+    pushToCloud({ activities: updatedActivities });
   };
 
   const goToNextDay = () => currentDayIndex < sortedDays.length - 1 && setCurrentDay(sortedDays[currentDayIndex + 1]);
@@ -394,10 +413,14 @@ function TripApp() {
     const f = e.target.files[0]; if (!f) return;
     const r = new FileReader();
     r.onloadend = async () => {
-      const n = { id: Date.now().toString(), name: f.name, data: r.result };
+      // אנחנו שומרים את ה-base64 מקומית, כדי שיוצג מיד גם ללא רשת. השרת כבר ידאג להעלות אותו.
+      const n = { id: Date.now().toString(), name: f.name, data: r.result, type: f.type };
       const updatedVault = [n, ...vaultFiles];
       setVaultFiles(updatedVault);
       await saveLocally('vault', VAULT_DB_KEY, updatedVault);
+      
+      showToast("מעלה את הקובץ לכספת הענן...");
+      pushToCloud({ vaultFiles: updatedVault });
     };
     r.readAsDataURL(f);
   };
@@ -406,6 +429,7 @@ function TripApp() {
       const updatedVault = vaultFiles.filter(x => x.id !== id);
       setVaultFiles(updatedVault);
       await saveLocally('vault', VAULT_DB_KEY, updatedVault);
+      pushToCloud({ vaultFiles: updatedVault });
   };
 
   const addPackingItem = async () => {
@@ -413,12 +437,14 @@ function TripApp() {
     const updatedPacking = [{ id: Date.now().toString(), text: t, checked: false }, ...packingList];
     setPackingList(updatedPacking);
     await saveLocally('packing', PACKING_DB_KEY, updatedPacking);
+    pushToCloud({ packingList: updatedPacking });
   };
 
   const togglePackingItem = async (id) => {
     const updatedPacking = packingList.map(i => i.id === id ? { ...i, checked: !i.checked } : i);
     setPackingList(updatedPacking);
     await saveLocally('packing', PACKING_DB_KEY, updatedPacking);
+    pushToCloud({ packingList: updatedPacking });
   };
 
   /**
@@ -481,12 +507,15 @@ function TripApp() {
                 <label className="p-3 bg-indigo-600 text-white rounded-2xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all"><Camera size={20}/><input type="file" className="hidden" onChange={handleFileUpload} /></label>
             </div>
             <div className="grid grid-cols-2 gap-4">
-                {vaultFiles.map(f => (
+                {vaultFiles.map(f => {
+                    // תיעדוף: קודם ה-URL שמגיע מ-Google Drive, אם אין אז את הבייס64 המקומי
+                    const imageSource = f.url || f.data;
+                    return (
                     <div key={f.id} className="relative aspect-[3/4] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 group shadow-sm">
-                        {f.data.startsWith('data:image') ? <img src={f.data} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-slate-300"><ImageIcon size={48}/></div>}
+                        {imageSource ? <img src={imageSource} className="w-full h-full object-cover" alt={f.name} /> : <div className="flex items-center justify-center h-full text-slate-300"><ImageIcon size={48}/></div>}
                         <button onClick={() => removeVaultFile(f.id)} className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md"><Trash2 size={12}/></button>
                     </div>
-                ))}
+                )})}
             </div>
         </div>
     );
