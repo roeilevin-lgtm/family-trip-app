@@ -1,229 +1,721 @@
-/**
- * Family Trip Planner - Production Backend Server (Final v4)
- * תומך בסנכרון מול Google Sheets, שאיבת מפות KML וסריקת קבצים אוטומטית מהדרייב.
- */
-
-const express = require('express');
-const cors = require('cors');
-const { google } = require('googleapis');
-const { PassThrough } = require('stream');
-const { XMLParser } = require('fast-xml-parser');
-
-const app = express();
-app.use(cors());
-
-// הרחבת מגבלת הגודל לקבלת קבצי Base64 כבדים (PDF/תמונות)
-app.use(express.json({ limit: '50mb' }));
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { 
+  Sun, Moon, Map, Calendar, Plus, Navigation, Clock, Trash2, Camera, 
+  UserCircle, MapPin, Wallet, CheckSquare, Square, 
+  Baby, CheckCircle, Check, Image as ImageIcon, RefreshCcw, SunMedium, Info, MapPinned,
+  RefreshCw, Briefcase, AlertOctagon, Calculator,
+  ChevronRight, ChevronLeft, FileText, X, GripVertical
+} from 'lucide-react';
 
 /**
- * פונקציית עזר להתחברות מאובטחת לשירותי גוגל
+ * --- API CONFIGURATION ---
  */
-const getGoogleAuth = () => {
-  const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
-  return new google.auth.GoogleAuth({
-    credentials,
-    scopes: [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.file',
-        'https://www.googleapis.com/auth/drive.readonly'
-    ]
+const API_URL = 'https://my-family-api.onrender.com/api/sync';
+
+/**
+ * --- APP CONSTANTS ---
+ */
+const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'family-trip-final';
+const DB_KEY = `${APP_ID}_db`;
+const PACKING_DB_KEY = `${APP_ID}_packing`;
+const VAULT_DB_KEY = `${APP_ID}_vault`;
+const THEME_PREF_KEY = `${APP_ID}_theme_pref`;
+const USER_IDENTITY_KEY = `${APP_ID}_identity`;
+const SAVED_CALENDAR_ID = `${APP_ID}_calendar_id`;
+
+const POPULAR_CURRENCIES = [
+  { code: 'EUR', label: 'אירו', flag: 'https://flagcdn.com/w40/eu.png', symbol: '€' },
+  { code: 'USD', label: 'דולר', flag: 'https://flagcdn.com/w40/us.png', symbol: '$' },
+  { code: 'PLN', label: 'זלוטי', flag: 'https://flagcdn.com/w40/pl.png', symbol: 'zł' },
+  { code: 'HUF', label: 'פורינט', flag: 'https://flagcdn.com/w40/hu.png', symbol: 'Ft' }
+];
+
+const ACTIVITY_TYPES = {
+  attraction: { label: 'אטרקציה', dot: 'bg-purple-500', border: 'border-purple-500', bg: 'bg-purple-100', darkBg: 'dark:bg-purple-900/30', text: 'text-purple-700', darkText: 'dark:text-purple-400', icon: '🎡' },
+  food: { label: 'אוכל', dot: 'bg-orange-500', border: 'border-orange-500', bg: 'bg-orange-100', darkBg: 'dark:bg-orange-900/30', text: 'text-orange-700', darkText: 'dark:text-orange-400', icon: '🍔' },
+  travel: { label: 'נסיעה', dot: 'bg-blue-500', border: 'border-blue-500', bg: 'bg-blue-100', darkBg: 'dark:bg-blue-900/30', text: 'text-blue-700', darkText: 'dark:text-blue-400', icon: '🚗' },
+  rest: { label: 'מנוחה', dot: 'bg-green-500', border: 'border-green-500', bg: 'bg-green-100', darkBg: 'dark:bg-green-900/30', text: 'text-green-700', darkText: 'dark:text-green-400', icon: '😴' }
+};
+
+/**
+ * --- UTILITIES & STORAGE (IndexedDB Wrapper) ---
+ */
+const initDB = () => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('FamilyTripDB_v5', 5); 
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('trips')) db.createObjectStore('trips');
+      if (!db.objectStoreNames.contains('vault')) db.createObjectStore('vault');
+      if (!db.objectStoreNames.contains('packing')) db.createObjectStore('packing');
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
 };
 
-/**
- * שליפת נקודות עניין מקובץ KML בדרייב
- */
-const getMapLocationsFromDrive = async (drive) => {
-    try {
-        const res = await drive.files.list({
-            q: `name contains '.kml' and trashed = false`,
-            fields: 'files(id, name, createdTime)',
-            orderBy: 'createdTime desc',
-        });
-
-        if (!res.data.files || res.data.files.length === 0) return [];
-
-        const fileRes = await drive.files.get(
-            { fileId: res.data.files[0].id, alt: 'media' },
-            { responseType: 'text' }
-        );
-        
-        const parser = new XMLParser({ ignoreAttributes: false });
-        const jsonObj = parser.parse(fileRes.data);
-
-        const extractPlacemarks = (obj) => {
-            let places = [];
-            if (!obj) return places;
-            if (Array.isArray(obj)) {
-                obj.forEach(item => places = places.concat(extractPlacemarks(item)));
-            } else if (typeof obj === 'object') {
-                if (obj.Placemark) {
-                    const pArr = Array.isArray(obj.Placemark) ? obj.Placemark : [obj.Placemark];
-                    pArr.forEach(p => {
-                        if (p.name && p.Point && p.Point.coordinates) {
-                            const coords = p.Point.coordinates.trim().split(',');
-                            places.push({ name: p.name, lat: coords[1], lng: coords[0] });
-                        }
-                    });
-                }
-                Object.keys(obj).forEach(k => {
-                    if (k !== 'Placemark') places = places.concat(extractPlacemarks(obj[k]));
-                });
-            }
-            return places;
-        };
-
-        return extractPlacemarks(jsonObj.kml?.Document);
-    } catch (error) {
-        console.error("KML Extraction Error:", error);
-        return [];
-    }
-};
-
-/**
- * סריקת תיקיית הדרייב לזיהוי קבצים שהועלו ידנית
- */
-const getFilesFromDriveFolder = async (drive, folderId) => {
-    if (!folderId) return [];
-    try {
-        const res = await drive.files.list({
-            q: `'${folderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
-            fields: 'files(id, name, mimeType)',
-        });
-        return (res.data.files || []).map(f => ({
-            id: f.id,
-            name: f.name,
-            url: `https://drive.google.com/uc?export=view&id=${f.id}`,
-            type: f.mimeType
-        }));
-    } catch (e) {
-        console.error("Drive Folder Scan Error:", e);
-        return [];
-    }
-};
-
-/**
- * --- PULL ENDPOINT (GET) ---
- */
-app.get('/api/sync', async (req, res) => {
+const saveLocally = async (storeName, key, data) => {
   try {
-    const auth = getGoogleAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
-    const drive = google.drive({ version: 'v3', auth });
-    const spreadsheetId = process.env.SPREADSHEET_ID;
-    const folderId = process.env.DRIVE_FOLDER_ID;
+    const db = await initDB();
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).put(data, key);
+  } catch (err) {
+    localStorage.setItem(`${storeName}_${key}`, JSON.stringify(data));
+  }
+};
 
-    const [tripRes, packingRes, vaultRes, mapLocs, driveFiles] = await Promise.all([
-        sheets.spreadsheets.values.get({ spreadsheetId, range: 'TripData!A2:H' }).catch(() => ({ data: { values: [] } })),
-        sheets.spreadsheets.values.get({ spreadsheetId, range: 'PackingData!A2:C' }).catch(() => ({ data: { values: [] } })),
-        sheets.spreadsheets.values.get({ spreadsheetId, range: 'VaultData!A2:D' }).catch(() => ({ data: { values: [] } })),
-        getMapLocationsFromDrive(drive),
-        getFilesFromDriveFolder(drive, folderId)
-    ]);
+const loadLocally = async (storeName, key) => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction(storeName, 'readonly');
+      const request = tx.objectStore(storeName).get(key);
+      request.onsuccess = () => resolve(request.result);
+    });
+  } catch (err) {
+    return JSON.parse(localStorage.getItem(`${storeName}_${key}`));
+  }
+};
 
-    const activities = {};
-    (tripRes.data.values || []).forEach(row => {
-      if (!row[1]) return;
-      if (!activities[row[1]]) activities[row[1]] = [];
-      activities[row[1]].push({
-          id: row[0], time: row[2], title: row[3], location: row[4], 
-          type: row[5], duration: row[6], completed: row[7] === 'TRUE'
+/**
+ * פונקציה אסטרונומית לחישוב זמני אור וחושך לפי מיקום מדויק
+ */
+const calculateIsDaylight = (lat, lng) => {
+    const now = new Date();
+    const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+    const hour = now.getHours() + now.getMinutes() / 60;
+    const declination = 23.45 * Math.sin((360 / 365) * (dayOfYear - 81) * (Math.PI / 180));
+    const latRad = lat * (Math.PI / 180);
+    const decRad = declination * (Math.PI / 180);
+    const cosH = -Math.tan(latRad) * Math.tan(decRad);
+    if (cosH > 1) return false; 
+    if (cosH < -1) return true; 
+    const H = Math.acos(cosH) * (180 / Math.PI) / 15;
+    const sunrise = 12 - H;
+    const sunset = 12 + H;
+    return hour >= sunrise && hour <= sunset;
+};
+
+/**
+ * --- UI COMPONENTS ---
+ */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError(error) { return { hasError: true }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div dir="rtl" className="p-10 text-center bg-slate-50 min-h-screen flex flex-col items-center justify-center font-sans">
+            <AlertOctagon size={64} className="text-red-500 mb-4" />
+            <h2 className="text-2xl font-black mb-2 text-slate-900">אופס, משהו השתבש</h2>
+            <p className="text-slate-500 mb-6">האפליקציה נתקלה בשגיאה טכנית. אל דאגה, הנתונים שלך בטוחים בענן.</p>
+            <button onClick={() => window.location.reload()} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-colors shadow-lg">טען מחדש</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/**
+ * SyncInput: מונע קפיצות טקסט בזמן סנכרון רקע
+ */
+function SyncInput({ value, onSave, className, type = "text", ...props }) {
+    const [localValue, setLocalValue] = useState(value || '');
+    const [isFocused, setIsFocused] = useState(false);
+    useEffect(() => { if (!isFocused) setLocalValue(value || ''); }, [value, isFocused]);
+    const handleBlur = () => {
+      setIsFocused(false);
+      if (localValue !== (value || '')) onSave(localValue);
+    };
+    return (
+      <input 
+        type={type} 
+        value={localValue} 
+        onChange={(e) => setLocalValue(e.target.value)} 
+        onFocus={() => setIsFocused(true)} 
+        onBlur={handleBlur} 
+        onKeyDown={(e) => e.key === 'Enter' && e.target.blur()} 
+        className={className} 
+        {...props} 
+      />
+    );
+}
+
+/**
+ * --- MAIN APPLICATION ---
+ */
+function TripApp() {
+  const [activities, setActivities] = useState({});
+  const [packingList, setPackingList] = useState([]);
+  const [vaultFiles, setVaultFiles] = useState([]);
+  const [mapLocations, setMapLocations] = useState([]); 
+  
+  const [currentUser, setCurrentUser] = useState(localStorage.getItem(USER_IDENTITY_KEY) || 'אורח');
+  const [currentDay, setCurrentDay] = useState("2026-07-17");
+  const [themeMode, setThemeMode] = useState('auto');
+  const [currentTheme, setCurrentTheme] = useState('light');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [activeTab, setActiveTab] = useState('schedule');
+  
+  const [exchangeRates, setExchangeRates] = useState({});
+  const [selectedCurrency, setSelectedCurrency] = useState('EUR');
+  const [exchangeRate, setExchangeRate] = useState(4.0);
+  const [foreignAmount, setForeignAmount] = useState('');
+  
+  const [dailyWeather, setDailyWeather] = useState(null);
+  const [userRole, setUserRole] = useState('editor');
+  const [isKidsMode, setIsKidsMode] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
+  const [conflictDialog, setConflictDialog] = useState(null);
+  
+  const lastSyncedActivitiesStr = useRef('{}');
+  const dragItem = useRef(null);
+  const dragOverItem = useRef(null);
+  const userMenuRef = useRef(null);
+  const dataRefs = useRef({ activities, packingList, vaultFiles, mapLocations });
+
+  const sortedDays = useMemo(() => Object.keys(activities).sort(), [activities]);
+  const currentDayIndex = sortedDays.indexOf(currentDay);
+
+  useEffect(() => { 
+    dataRefs.current = { activities, packingList, vaultFiles, mapLocations }; 
+  }, [activities, packingList, vaultFiles, mapLocations]);
+
+  useEffect(() => { 
+    localStorage.setItem(USER_IDENTITY_KEY, currentUser); 
+  }, [currentUser]);
+
+  const showToast = useCallback((msg, duration = 3000) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), duration);
+  }, []);
+
+  /**
+   * --- CLOUD ENGINE: PUSH & PULL ---
+   */
+  const pushToCloud = async (newData) => {
+    if (!isOnline) return;
+    setIsSyncing(true);
+    const payload = {
+        activities: newData.activities || dataRefs.current.activities,
+        packingList: newData.packingList || dataRefs.current.packingList,
+        vaultFiles: newData.vaultFiles || dataRefs.current.vaultFiles
+    };
+    try {
+      const res = await fetch(API_URL, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(payload) 
       });
-    });
+      if (res.ok) {
+        lastSyncedActivitiesStr.current = JSON.stringify(payload.activities);
+      }
+    } catch (e) { console.error("Push Error:", e); } 
+    finally { setIsSyncing(false); }
+  };
 
-    const packingList = (packingRes.data.values || []).map(row => ({
-        id: row[0], text: row[1], checked: row[2] === 'TRUE'
-    }));
+  const pullFromCloud = async (silent = false) => {
+    if (!isOnline) return;
+    if (!silent) setIsSyncing(true);
+    try {
+      const res = await fetch(API_URL);
+      if (!res.ok) throw new Error("Server error");
+      const data = await res.json();
+      
+      let changed = false;
 
-    // מיזוג קבצים מהאקסל וקבצים פיזיים מהדרייב למניעת כפילויות
-    const sheetFiles = (vaultRes.data.values || []).map(row => ({
-        id: row[0], name: row[1], url: row[2], type: row[3]
-    }));
+      // Conflict detection for activities
+      if (data.activities) {
+          const cloudStr = JSON.stringify(data.activities);
+          const localStr = JSON.stringify(dataRefs.current.activities);
+          if (cloudStr !== localStr) {
+              if (localStr === lastSyncedActivitiesStr.current || Object.keys(dataRefs.current.activities).length === 0) {
+                  setActivities(data.activities);
+                  lastSyncedActivitiesStr.current = cloudStr;
+                  await saveLocally('trips', DB_KEY, data.activities);
+                  changed = true;
+              } else {
+                  setConflictDialog(data);
+              }
+          }
+      }
+
+      if (data.packingList && JSON.stringify(data.packingList) !== JSON.stringify(dataRefs.current.packingList)) {
+          setPackingList(data.packingList);
+          await saveLocally('packing', PACKING_DB_KEY, data.packingList);
+          changed = true;
+      }
+      
+      if (data.vaultFiles) {
+          const mergedVault = data.vaultFiles.map(cloudFile => {
+              const localFile = dataRefs.current.vaultFiles.find(f => f.id === cloudFile.id);
+              const isPinned = cloudFile.type?.includes('pinned') || (localFile && localFile.pinnedToWallet);
+              return { ...cloudFile, data: localFile?.data, pinnedToWallet: isPinned };
+          });
+          if (JSON.stringify(mergedVault) !== JSON.stringify(dataRefs.current.vaultFiles)) {
+             setVaultFiles(mergedVault);
+             await saveLocally('vault', VAULT_DB_KEY, mergedVault);
+             changed = true;
+          }
+      }
+
+      if (data.mapLocations && JSON.stringify(data.mapLocations) !== JSON.stringify(dataRefs.current.mapLocations)) {
+          setMapLocations(data.mapLocations);
+          changed = true;
+      }
+
+      if (!silent && !conflictDialog && changed) showToast("סונכרן בהצלחה");
+    } catch (e) { console.error("Pull Error:", e); } 
+    finally { if (!silent) setIsSyncing(false); }
+  };
+
+  /**
+   * --- GOOGLE CALENDAR SYNC ---
+   */
+  const syncFromGoogleCalendar = async () => {
+    if (!isOnline) {
+        showToast("נדרש חיבור לאינטרנט לסנכרון יומן");
+        return;
+    }
     
-    const allVault = [...sheetFiles];
-    driveFiles.forEach(df => {
-        if (!allVault.find(sf => sf.id === df.id)) allVault.push(df);
-    });
+    const savedCalId = localStorage.getItem(SAVED_CALENDAR_ID) || currentUser;
+    const calId = prompt("הכנס כתובת ג'ימייל של היומן (חובה לשתף אותו מראש עם אימייל הרובוט):", savedCalId);
+    
+    if (!calId) return;
+    localStorage.setItem(SAVED_CALENDAR_ID, calId);
+    setIsSyncing(true);
+    
+    try {
+        const calUrl = API_URL.replace('/sync', '/calendar');
+        const res = await fetch(`${calUrl}?calendarId=${encodeURIComponent(calId)}&date=${currentDay}`);
+        
+        if (!res.ok) throw new Error('Calendar fetch failed');
+        const data = await res.json();
 
-    res.json({ success: true, activities, packingList, vaultFiles: allVault, mapLocations: mapLocs });
-
-  } catch (error) {
-    console.error("Sync Pull Error:", error);
-    res.status(500).json({ success: false });
-  }
-});
-
-/**
- * --- PUSH ENDPOINT (POST) ---
- */
-app.post('/api/sync', async (req, res) => {
-  try {
-    const { activities, packingList, vaultFiles } = req.body;
-    const auth = getGoogleAuth();
-    const sheets = google.sheets({ version: 'v4', auth });
-    const drive = google.drive({ version: 'v3', auth });
-    const spreadsheetId = process.env.SPREADSHEET_ID;
-    const folderId = process.env.DRIVE_FOLDER_ID;
-
-    // 1. נתוני לו"ז
-    const tripRows = [['ID', 'Date', 'Time', 'Title', 'Location', 'Type', 'Duration', 'Completed']];
-    if (activities) {
-        Object.entries(activities).forEach(([date, acts]) => {
-            acts.forEach(a => tripRows.push([a.id, date, a.time, a.title, a.location, a.type, a.duration, a.completed ? 'TRUE' : 'FALSE']));
-        });
-    }
-
-    // 2. נתוני אריזה
-    const packingRows = [['ID', 'Text', 'Checked']];
-    if (packingList) {
-        packingList.forEach(p => packingRows.push([p.id, p.text, p.checked ? 'TRUE' : 'FALSE']));
-    }
-
-    // 3. קבצי כספת (העלאה לדרייב אם מדובר ב-Base64 חדש)
-    const vaultRows = [['ID', 'Name', 'URL', 'Type']];
-    if (vaultFiles) {
-        for (const file of vaultFiles) {
-            let fileUrl = file.url;
-            if (file.data && file.data.startsWith('data:') && folderId) {
-                try {
-                    const mimeType = file.data.substring(file.data.indexOf(":") + 1, file.data.indexOf(";"));
-                    const base64Str = file.data.split(',')[1];
-                    const bufferStream = new PassThrough();
-                    bufferStream.end(Buffer.from(base64Str, 'base64'));
-
-                    const driveRes = await drive.files.create({
-                        resource: { name: file.name, parents: [folderId] },
-                        media: { mimeType, body: bufferStream },
-                        fields: 'id'
+        if (data.events && data.events.length > 0) {
+            const newActs = [...(dataRefs.current.activities[currentDay] || [])];
+            let addedCount = 0;
+            
+            data.events.forEach(ev => {
+                // מניעת כפילויות - אם יש פעילות באותה שעה עם אותו שם, נדלג
+                if (!newActs.find(a => a.title === ev.title && a.time === ev.time)) {
+                    newActs.push({
+                        id: `cal_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                        time: ev.time,
+                        title: ev.title,
+                        location: ev.location || 'יומן גוגל',
+                        duration: ev.duration || '60',
+                        type: 'attraction',
+                        completed: false
                     });
-                    
-                    await drive.permissions.create({
-                        fileId: driveRes.data.id,
-                        requestBody: { role: 'reader', type: 'anyone' }
-                    });
-                    fileUrl = `https://drive.google.com/uc?export=view&id=${driveRes.data.id}`;
-                } catch (e) { console.error("Drive upload failed:", e); }
+                    addedCount++;
+                }
+            });
+            
+            if (addedCount > 0) {
+                // מיון מחדש לפי שעות
+                newActs.sort((a, b) => a.time.localeCompare(b.time));
+                const updatedActivities = { ...dataRefs.current.activities, [currentDay]: newActs };
+                setActivities(updatedActivities);
+                await saveLocally('trips', DB_KEY, updatedActivities);
+                pushToCloud({ activities: updatedActivities });
+                showToast(`נוספו ${addedCount} אירועים מהיומן`);
+            } else {
+                showToast('לא נמצאו אירועים חדשים (כנראה שכבר סונכרנו)');
             }
-            vaultRows.push([file.id, file.name, fileUrl || '', file.type || 'image']);
+        } else {
+            showToast('לא נמצאו אירועים ביום זה ביומן גוגל');
         }
+    } catch (err) {
+        console.error("Calendar Sync Error:", err);
+        showToast('שגיאה בסנכרון. ודא ששיתפת את היומן עם כתובת הרובוט בהגדרות גוגל.');
+    } finally {
+        setIsSyncing(false);
     }
+  };
 
-    // עדכון הגיליון
-    await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'TripData' });
-    await sheets.spreadsheets.values.update({ spreadsheetId, range: 'TripData!A1', valueInputOption: 'RAW', requestBody: { values: tripRows } });
+  /**
+   * --- INITIALIZATION & EFFECTS ---
+   */
+  useEffect(() => {
+    const init = async () => {
+      const saved = await loadLocally('trips', DB_KEY);
+      if (saved) { setActivities(saved); lastSyncedActivitiesStr.current = JSON.stringify(saved); }
+      else setActivities({ "2026-07-17": [{ id: '1', time: '08:00', title: 'נסיעה לשדה', location: 'נתב"ג', duration: '60', type: 'travel', completed: false }] });
+      
+      const pack = await loadLocally('packing', PACKING_DB_KEY); if (pack) setPackingList(pack);
+      const vault = await loadLocally('vault', VAULT_DB_KEY); if (vault) setVaultFiles(vault);
+      const th = localStorage.getItem(THEME_PREF_KEY); if (th) setThemeMode(th);
+      
+      if (navigator.onLine) pullFromCloud(true);
+    };
+    init();
+
+    const up = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', up);
+
+    const intervalId = setInterval(() => pullFromCloud(true), 30000); 
+
+    const handleClickOutside = (e) => {
+        if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setShowUserMenu(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => { 
+        window.removeEventListener('online', up); window.removeEventListener('offline', up);
+        clearInterval(intervalId);
+        document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Theme Geolocation Algorithm
+  useEffect(() => {
+    if (themeMode === 'auto') {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              pos => setCurrentTheme(calculateIsDaylight(pos.coords.latitude, pos.coords.longitude) ? 'light' : 'dark'),
+              () => setCurrentTheme(new Date().getHours() >= 6 && new Date().getHours() < 19 ? 'light' : 'dark')
+            );
+        } else {
+            setCurrentTheme(new Date().getHours() >= 6 && new Date().getHours() < 19 ? 'light' : 'dark');
+        }
+    } else {
+        setCurrentTheme(themeMode);
+    }
+  }, [themeMode]);
+
+  useEffect(() => { 
+    document.documentElement.className = currentTheme; 
+    localStorage.setItem(THEME_PREF_KEY, themeMode); 
+  }, [currentTheme, themeMode]);
+
+  /**
+   * --- APP ACTIONS ---
+   */
+  const handleActivityEdit = async (id, field, value) => {
+    const dayActs = [...(activities[currentDay] || [])];
+    const idx = dayActs.findIndex(a => a.id === id);
+    if (idx === -1 || dayActs[idx][field] === value) return;
     
-    await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'PackingData' });
-    await sheets.spreadsheets.values.update({ spreadsheetId, range: 'PackingData!A1', valueInputOption: 'RAW', requestBody: { values: packingRows } });
+    dayActs[idx] = { ...dayActs[idx], [field]: value };
+    const up = { ...activities, [currentDay]: dayActs };
+    setActivities(up);
+    await saveLocally('trips', DB_KEY, up);
+    pushToCloud({ activities: up });
+  };
 
-    await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'VaultData' });
-    await sheets.spreadsheets.values.update({ spreadsheetId, range: 'VaultData!A1', valueInputOption: 'RAW', requestBody: { values: vaultRows } });
+  const handleDragEnd = async () => {
+      if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
+          const list = [...(activities[currentDay] || [])];
+          const dragged = list.splice(dragItem.current, 1)[0];
+          list.splice(dragOverItem.current, 0, dragged);
+          dragItem.current = null; dragOverItem.current = null;
+          const up = { ...activities, [currentDay]: list };
+          setActivities(up);
+          await saveLocally('trips', DB_KEY, up);
+          pushToCloud({ activities: up });
+      }
+  };
 
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Sync Push Error:", error);
-    res.status(500).json({ success: false });
-  }
-});
+  const stats = useMemo(() => {
+    let t = 0, a = 0;
+    (activities[currentDay] || []).forEach(x => { 
+        const d = Number(x.duration) || 0; 
+        if (x.type === 'travel') t += d; else a += d; 
+    });
+    return { travel: t, activity: a };
+  }, [activities, currentDay]);
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🤖 Server live on port ${PORT}`));
+  const fetchFX = async () => {
+    try {
+        const res = await fetch('https://open.er-api.com/v6/latest/ILS');
+        const data = await res.json();
+        if (data.rates) {
+            const inv = {}; 
+            Object.entries(data.rates).forEach(([k,v]) => inv[k] = 1/v);
+            setExchangeRates(inv); 
+            if (inv[selectedCurrency]) setExchangeRate(Number(inv[selectedCurrency].toFixed(4)));
+        }
+    } catch(e) {}
+  };
+  useEffect(() => { fetchFX(); }, [selectedCurrency]);
+
+  /**
+   * --- RENDERING PANES ---
+   */
+  const renderSecondaryPane = () => {
+    const pane = activeTab === 'schedule' ? 'map' : activeTab;
+    
+    if (pane === 'map') return (
+        <div className="space-y-6 animate-in">
+            <h2 className="text-3xl font-black text-slate-900 dark:text-white">מיקומים שמורים</h2>
+            <div className="space-y-3">
+                {mapLocations.map((loc, i) => (
+                    <a key={i} href={`https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`} target="_blank" rel="noreferrer" className="p-5 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-3xl flex items-center justify-between shadow-sm hover:scale-[1.02] transition-all group">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-2xl group-hover:scale-110 transition-transform"><MapPin size={20} fill="currentColor"/></div>
+                            <h3 className="font-bold text-slate-700 dark:text-slate-200">{loc.name}</h3>
+                        </div>
+                        <Navigation size={18} className="text-indigo-500"/>
+                    </a>
+                ))}
+                {mapLocations.length === 0 && <p className="text-center text-slate-400 py-10">אין מיקומים. הוסף קובץ KML לדרייב.</p>}
+            </div>
+        </div>
+    );
+    
+    if (pane === 'vault') return (
+        <div className="space-y-6 animate-in">
+            <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-black text-slate-900 dark:text-white">כספת</h2>
+                <label className="p-3 bg-indigo-600 text-white rounded-2xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all hover:scale-105 active:scale-95"><Camera size={20}/><input type="file" accept="image/*,application/pdf" className="hidden" onChange={async (e) => {
+                    const f = e.target.files[0]; if (!f) return;
+                    const r = new FileReader(); r.onloadend = async () => {
+                        const n = { id: Date.now().toString(), name: f.name, data: r.result, type: f.type, pinnedToWallet: false };
+                        const up = [n, ...vaultFiles]; setVaultFiles(up); await saveLocally('vault', VAULT_DB_KEY, up); pushToCloud({ vaultFiles: up });
+                    }; r.readAsDataURL(f);
+                }} /></label>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                {vaultFiles.map(f => {
+                    const isPdf = f.name.toLowerCase().endsWith('.pdf') || f.type?.includes('pdf');
+                    return (
+                        <div key={f.id} className="relative aspect-[3/4] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm flex flex-col group transition-all hover:shadow-md">
+                            {isPdf ? (
+                                <div className="flex-1 flex flex-col items-center justify-center p-4 text-center bg-slate-50 dark:bg-slate-800/50">
+                                    <FileText size={40} className="text-red-500 mb-2"/><span className="text-[10px] font-bold truncate w-full text-slate-700 dark:text-slate-300" dir="ltr">{f.name}</span>
+                                    <a href={f.url || f.data} download={f.name} className="mt-3 px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-lg hover:bg-indigo-200 transition-colors">הורד</a>
+                                </div>
+                            ) : ( <img src={f.url || f.data} className="w-full h-full object-cover" alt="" /> )}
+                            <button onClick={async () => {
+                                const up = vaultFiles.map(v => v.id === f.id ? { ...v, pinnedToWallet: !v.pinnedToWallet } : v);
+                                setVaultFiles(up); await saveLocally('vault', VAULT_DB_KEY, up); pushToCloud({ vaultFiles: up });
+                            }} className={`absolute top-2 left-2 p-2 rounded-full shadow-md transition-all hover:scale-110 ${f.pinnedToWallet ? 'bg-yellow-400 text-white' : 'bg-white/80 text-slate-400 hover:text-indigo-600'}`}><Wallet size={12}/></button>
+                            <button onClick={async () => { const up = vaultFiles.filter(x => x.id !== f.id); setVaultFiles(up); await saveLocally('vault', VAULT_DB_KEY, up); pushToCloud({ vaultFiles: up }); }} className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"><Trash2 size={12}/></button>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+    
+    if (pane === 'wallet') {
+        const pinned = vaultFiles.filter(f => f.pinnedToWallet);
+        return (
+            <div className="space-y-8 animate-in">
+                <h2 className="text-3xl font-black text-slate-900 dark:text-white">ארנק ומט"ח</h2>
+                <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 shadow-sm space-y-6">
+                    <div className="grid grid-cols-4 gap-2">
+                        {POPULAR_CURRENCIES.map(c => (
+                            <button key={c.code} onClick={() => setSelectedCurrency(c.code)} className={`py-3 rounded-2xl flex flex-col items-center gap-1.5 transition-all hover:scale-105 ${selectedCurrency === c.code ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-500/20' : 'bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400'}`}>
+                                <span className="block h-6 w-8 overflow-hidden rounded border border-slate-200 dark:border-slate-600"><img src={c.flag} className="w-full h-full object-cover" alt=""/></span>
+                                <span className="text-[11px] font-black">{c.code} {c.symbol}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <div className="flex-1 relative">
+                            <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className="w-full py-4 pr-4 pl-20 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-right focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white" />
+                            <div className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1"><img src={POPULAR_CURRENCIES.find(p=>p.code===selectedCurrency)?.flag} className="h-3 w-5 rounded-sm" alt=""/> <span className="text-xs font-black text-slate-400">{selectedCurrency}</span></div>
+                        </div>
+                        <div className="text-2xl text-slate-300 font-black">=</div>
+                        <div className="flex-1 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black text-lg text-left dir-ltr border border-indigo-100 dark:border-indigo-800">{(Number(foreignAmount) * exchangeRate).toFixed(2)} ₪</div>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700"><span>שער המרה: {exchangeRate}</span><button onClick={fetchFX} className="text-indigo-500 flex items-center gap-1 hover:underline"><RefreshCcw size={12}/> רענן</button></div>
+                </div>
+                <div><h3 className="text-xl font-black mb-4 px-2 text-slate-900 dark:text-white">מסמכים לשליפה מהירה</h3>
+                    <div className="grid grid-cols-2 gap-4">{pinned.map(f => (
+                        <div key={f.id} className="relative aspect-video rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm flex flex-col group">
+                            { (f.name.toLowerCase().endsWith('.pdf') || f.type?.includes('pdf')) ? (
+                                <div className="flex-1 flex flex-col items-center justify-center p-2 text-center bg-slate-50 dark:bg-slate-900/30"><FileText size={24} className="text-red-500 mb-1"/><span className="text-[9px] font-bold truncate w-full text-slate-700 dark:text-slate-300" dir="ltr">{f.name}</span><a href={f.url || f.data} download={f.name} className="mt-1 px-3 py-1 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400 text-[9px] font-black rounded-lg hover:bg-indigo-100 transition-colors">צפה</a></div>
+                            ) : ( <img src={f.url || f.data} className="w-full h-full object-cover" alt=""/> )}
+                            <button onClick={() => { const up = vaultFiles.map(v => v.id === f.id ? { ...v, pinnedToWallet: false } : v); setVaultFiles(up); saveLocally('vault', VAULT_DB_KEY, up); pushToCloud({ vaultFiles: up }); }} className="absolute top-1 left-1 p-1 bg-slate-900/50 text-white rounded-full hover:bg-red-500 transition-colors"><X size={10}/></button>
+                        </div>
+                    ))}</div>
+                    {pinned.length === 0 && <p className="text-center text-slate-400 py-8 border border-dashed border-slate-200 dark:border-slate-700 rounded-3xl text-sm">אין מסמכים נעוצים.</p>}
+                </div>
+            </div>
+        );
+    }
+    
+    if (activeTab === 'packing') return (
+        <div className="space-y-6 animate-in">
+            <div className="flex justify-between items-center">
+                <h2 className="text-3xl font-black text-slate-900 dark:text-white">אריזה</h2>
+                <button onClick={async () => { const t = prompt('הכנס פריט:'); if (!t) return; const up = [{ id: Date.now().toString(), text: t, checked: false, owner: currentUser }, ...packingList]; setPackingList(up); await saveLocally('packing', PACKING_DB_KEY, up); pushToCloud({ packingList: up }); }} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 transition-all hover:scale-105 active:scale-95"><Plus size={20}/></button>
+            </div>
+            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
+                {packingList.map(item => (
+                    <div key={item.id} onClick={async () => { const up = packingList.map(i => i.id === item.id ? { ...i, checked: !i.checked } : i); setPackingList(up); await saveLocally('packing', PACKING_DB_KEY, up); pushToCloud({ packingList: up }); }} className="p-5 border-b last:border-0 border-slate-50 dark:border-slate-700 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                        <div className="flex items-center gap-4">
+                            {item.checked ? <CheckSquare className="text-green-500 shrink-0"/> : <Square className="text-slate-300 shrink-0"/>}
+                            <span className={`font-bold ${item.checked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{item.text}</span>
+                        </div>
+                        {item.owner && <span className="text-[9px] bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold px-2 py-1 rounded-full shrink-0">{item.owner}</span>}
+                    </div>
+                ))}
+                {packingList.length === 0 && <div className="p-8 text-center text-slate-400">הרשימה ריקה</div>}
+            </div>
+        </div>
+    );
+  };
+
+  /**
+   * --- FINAL RENDER ---
+   */
+  const themeClass = currentTheme === 'dark' ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900';
+
+  return (
+    <div dir="rtl" className={`min-h-screen flex flex-col transition-all duration-500 font-sans ${themeClass}`}>
+      {toastMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 font-bold text-sm whitespace-nowrap">{toastMessage}</div>}
+
+      {/* Conflict Modal */}
+      {conflictDialog && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
+              <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-2xl max-w-sm w-full text-center border border-slate-100 dark:border-slate-700">
+                  <AlertOctagon size={48} className="mx-auto text-orange-500 mb-4" />
+                  <h2 className="text-xl font-black mb-2 text-slate-900 dark:text-white">קונפליקט גרסאות</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">התגלו נתונים שונים בענן. איזו גרסה לשמור?</p>
+                  <div className="space-y-3">
+                      <button onClick={async () => { setActivities(conflictDialog.activities); lastSyncedActivitiesStr.current = JSON.stringify(conflictDialog.activities); await saveLocally('trips', DB_KEY, conflictDialog.activities); setConflictDialog(null); }} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30">קבל גרסת ענן</button>
+                      <button onClick={async () => { lastSyncedActivitiesStr.current = JSON.stringify(activities); pushToCloud({ activities }); setConflictDialog(null); }} className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">השאר גרסה שלי</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      <header className={`sticky top-0 z-50 border-b p-3 flex items-center justify-between backdrop-blur-xl ${currentTheme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-slate-200 shadow-sm'}`}>
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-lg ${isKidsMode ? 'bg-yellow-400' : 'bg-indigo-600 shadow-indigo-500/20'}`}>
+            {isKidsMode ? <Baby size={24} /> : <Map size={22} />}
+          </div>
+          <div className="leading-tight">
+            <h1 className="font-black text-lg tracking-tight text-slate-900 dark:text-white">{isKidsMode ? 'הטיול שלי!' : 'FamilyPlanner'}</h1>
+            {!isOnline && <span className="text-[10px] text-orange-500 font-bold bg-orange-100 dark:bg-orange-900/30 px-2 rounded-full">אופליין</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {isOnline && <button onClick={() => pullFromCloud(false)} className="p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl transition-all" title="סנכרון ידני"><RefreshCw size={20} className={isSyncing ? 'animate-spin' : ''} /></button>}
+          <button onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'auto')} className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors" title="מצב עיצוב">
+            {themeMode === 'auto' ? <MapPin size={20} className="text-indigo-500"/> : (currentTheme === 'dark' ? <Moon size={20}/> : <Sun size={20}/>)}
+          </button>
+          <div className="relative" ref={userMenuRef}>
+            <button onClick={() => setShowUserMenu(!showUserMenu)} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 shadow-inner hover:text-indigo-600 transition-colors"><UserCircle size={28}/></button>
+            {showUserMenu && (
+                <div className="absolute left-0 mt-3 w-64 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-3xl shadow-2xl p-5 animate-in zoom-in-95 origin-top-left z-[60]">
+                    <div className="mb-5"><label className="block text-[11px] font-black text-slate-400 mb-2 uppercase tracking-wide">מי משתמש?</label><input type="text" value={currentUser} onChange={(e) => setCurrentUser(e.target.value)} className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="הכנס שם..."/></div>
+                    <button onClick={() => { setIsKidsMode(!isKidsMode); setShowUserMenu(false); }} className={`w-full py-3 font-bold rounded-2xl flex items-center justify-center gap-2 transition-all hover:scale-105 ${isKidsMode ? 'bg-slate-100 text-slate-700' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'}`}><Baby size={18}/> {isKidsMode ? 'צא ממצב ילדים' : 'מצב ילדים'}</button>
+                </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-32 lg:pb-8">
+        <div className="max-w-[90rem] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+          <div className={`lg:col-span-7 space-y-8 ${activeTab === 'schedule' ? 'block' : 'hidden lg:block'}`}>
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-3xl overflow-x-auto no-scrollbar scroll-smooth shadow-inner border border-slate-50 dark:border-slate-900/50">
+                {sortedDays.map((day, idx) => (
+                    <button key={day} onClick={() => setCurrentDay(day)} className={`px-6 py-3 rounded-2xl font-black text-sm shrink-0 transition-all hover:scale-105 ${currentDay === day ? (isKidsMode ? 'bg-yellow-400 shadow-md text-slate-900' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20') : 'bg-white dark:bg-slate-700 text-slate-400'}`}>יום {idx+1}</button>
+                ))}
+            </div>
+            <section className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{isKidsMode ? 'היום בטיול!' : 'הלו"ז היומי'}</h2>
+                    
+                    {/* אזור הכפתורים: הוספת סנכרון יומן גוגל לצד יצירת פעילות חדשה */}
+                    <div className="flex items-center gap-2">
+                        {!isKidsMode && <button onClick={syncFromGoogleCalendar} className="w-14 h-14 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-2xl shadow-sm flex items-center justify-center transition-transform hover:scale-105 active:scale-95" title="סנכרן מיומן גוגל"><Calendar size={24}/></button>}
+                        {!isKidsMode && <button onClick={async () => { const n = { id: Date.now().toString(), time: '08:00', title: 'פעילות חדשה', location: 'הזן מיקום', duration: '60', type: 'attraction', completed: false }; const up = { ...activities, [currentDay]: [n, ...(activities[currentDay] || [])] }; setActivities(up); await saveLocally('trips', DB_KEY, up); pushToCloud({ activities: up }); }} className="w-14 h-14 bg-indigo-600 text-white rounded-2xl shadow-xl flex items-center justify-center transition-transform hover:scale-110 hover:shadow-indigo-500/40 active:scale-90" title="הוסף פעילות חדשה"><Plus size={32}/></button>}
+                    </div>
+                </div>
+                
+                <div className="space-y-4 relative pr-4">
+                    <div className="absolute top-4 bottom-4 right-0 w-1 bg-slate-200 dark:bg-slate-800 rounded-full"></div>
+                    {(activities[currentDay] || []).map((act, idx) => {
+                        const type = ACTIVITY_TYPES[act.type || 'attraction'];
+                        return (
+                            <div key={act.id} draggable={!isKidsMode} onDragStart={() => dragItem.current = idx} onDragEnter={() => dragOverItem.current = idx} onDragEnd={handleDragEnd} onDragOver={(e) => e.preventDefault()} className={`relative pr-8 animate-in ${act.completed ? 'opacity-50 grayscale-[50%]' : ''}`}>
+                                <div className={`absolute right-[-4px] top-8 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900 ${act.completed ? 'bg-green-500' : type.dot}`}></div>
+                                <div className={`p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-3xl shadow-sm border-r-4 ${act.completed ? 'border-r-green-500' : type.border} flex items-center gap-4 group transition-all hover:shadow-md`}>
+                                    {!isKidsMode && <div className="cursor-move text-slate-300 dark:text-slate-600 ml-1 touch-none hover:text-indigo-500"><GripVertical size={20} /></div>}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex justify-between items-start">
+                                            <div className="flex items-center gap-3 w-full"><button onClick={()=>isKidsMode ? handleActivityEdit(act.id, 'completed', !act.completed) : handleActivityEdit(act.id, 'type', Object.keys(ACTIVITY_TYPES)[(Object.keys(ACTIVITY_TYPES).indexOf(act.type)+1)%4])} className={`w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 transition-transform hover:scale-110 ${act.completed ? 'bg-green-500 text-white' : (type.bg + ' ' + type.darkBg)}`}>{act.completed ? <CheckCircle size={20}/> : type.icon}</button>
+                                                <div className="min-w-0 flex-1 flex items-center gap-2">
+                                                    <SyncInput type="time" value={act.time} onSave={(val)=>handleActivityEdit(act.id, 'time', val)} className={`text-[10px] font-black p-0.5 rounded border-none bg-transparent ${act.completed ? 'bg-green-100 text-green-700' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300'}`} />
+                                                    <SyncInput type="text" value={act.title} onSave={(val)=>handleActivityEdit(act.id, 'title', val)} className={`block w-full font-bold text-lg bg-transparent truncate text-slate-900 dark:text-white focus:outline-none ${act.completed ? 'line-through text-slate-400' : ''}`} />
+                                                </div>
+                                            </div>
+                                            {!isKidsMode && <button onClick={async ()=>{ const up = { ...activities, [currentDay]: activities[currentDay].filter(a => a.id !== act.id) }; setActivities(up); saveLocally('trips', DB_KEY, up); pushToCloud({ activities: up }); }} className="text-slate-200 dark:text-slate-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all ml-2"><Trash2 size={16}/></button>}
+                                        </div>
+                                        <div className="flex items-center gap-3 mt-2 text-[11px] font-bold text-slate-400">
+                                            <div className="flex items-center gap-1 truncate max-w-[150px]"><MapPin size={12}/> <SyncInput value={act.location} onSave={(val)=>handleActivityEdit(act.id, 'location', val)} className="bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 w-full" /></div>
+                                            <div className="flex items-center gap-1"><Clock size={12}/> <SyncInput type="number" value={act.duration} onSave={(val)=>handleActivityEdit(act.id, 'duration', val)} className="bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 w-8 text-center" /> דק'</div>
+                                        </div>
+                                    </div>
+                                    {isKidsMode && <button onClick={()=>handleActivityEdit(act.id, 'completed', !act.completed)} className={`px-4 py-3 rounded-2xl font-black shadow-md transition-all hover:scale-105 active:scale-95 ${act.completed ? 'bg-green-100 text-green-700' : 'bg-yellow-400 text-slate-900'}`}>{act.completed ? 'בוצע!' : 'היינו כאן!'}</button>}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+                {!isKidsMode && (activities[currentDay] || []).length > 0 && (
+                    <div className="mt-8 p-6 bg-slate-50 dark:bg-slate-800 rounded-[2.5rem] flex justify-around text-center border border-slate-100 dark:border-slate-700 shadow-inner">
+                        <div><p className="text-[10px] uppercase font-bold text-slate-400 mb-1 tracking-widest">פעילות נטו</p><p className="font-black text-xl text-indigo-600 dark:text-indigo-400">{Math.floor(stats.activity/60)} ש' ו-{stats.activity%60} ד'</p></div>
+                        <div className="w-px bg-slate-200 dark:bg-slate-700 h-10"></div>
+                        <div><p className="text-[10px] uppercase font-bold text-slate-400 mb-1 tracking-widest">זמן בדרכים</p><p className="font-black text-xl text-blue-500 dark:text-blue-400">{Math.floor(stats.travel/60)} ש' ו-{stats.travel%60} ד'</p></div>
+                    </div>
+                )}
+            </section>
+          </div>
+          <div className={`lg:col-span-4 ${activeTab !== 'schedule' ? 'block' : 'hidden lg:block'}`}>{!isKidsMode ? renderSecondaryPane() : <div className="h-full flex flex-col items-center justify-center opacity-20 grayscale select-none"><Baby size={84} className="mb-6 text-slate-400"/><h3 className="text-2xl font-black text-slate-400">אזור מבוגרים</h3></div>}</div>
+          {!isKidsMode && ( <div className="hidden lg:flex lg:col-span-1 flex-col items-center w-full"><div className="sticky top-24 flex flex-col gap-4 items-center">
+              {[ {id: 'schedule', icon: <MapPinned size={24}/>, label: 'מפה'}, {id: 'packing', icon: <CheckSquare size={24}/>, label: 'אריזה'}, {id: 'vault', icon: <Briefcase size={24}/>, label: 'כספת'}, {id: 'wallet', icon: <Calculator size={24}/>, label: 'ארנק'} ].map(btn => (
+                  <button key={btn.id} title={btn.label} onClick={()=>setActiveTab(btn.id)} className={`w-14 h-14 shrink-0 flex items-center justify-center rounded-2xl shadow-xl transition-all hover:scale-110 active:scale-95 ${activeTab===btn.id ? 'bg-indigo-600 text-white ring-4 ring-indigo-500/20 shadow-indigo-500/30' : 'bg-white dark:bg-slate-800 text-slate-400 border border-slate-100 dark:border-slate-700 hover:text-indigo-500'}`}>{btn.icon}</button>
+              ))}
+          </div></div> )}
+        </div>
+      </main>
+      {!isKidsMode && (
+        <nav className="fixed bottom-0 left-0 right-0 safe-bottom border-t border-slate-100 dark:border-slate-800 p-2 flex justify-around items-center z-40 backdrop-blur-xl bg-white/95 dark:bg-slate-900/95 lg:hidden">
+          <NavBtn active={activeTab === 'schedule'} icon={<Calendar />} label="לוז" onClick={() => setActiveTab('schedule')} />
+          <NavBtn active={activeTab === 'map'} icon={<Map />} label="מפה" onClick={() => setActiveTab('map')} />
+          <NavBtn active={activeTab === 'packing'} icon={<CheckSquare />} label="אריזה" onClick={() => setActiveTab('packing')} />
+          <NavBtn active={activeTab === 'vault'} icon={<Briefcase />} label="כספת" onClick={() => setActiveTab('vault')} />
+          <NavBtn active={activeTab === 'wallet'} icon={<Wallet />} label="ארנק" onClick={() => setActiveTab('wallet')} />
+        </nav>
+      )}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .dir-ltr { direction: ltr; }
+        input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type="time"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; position: absolute; right: 0; width: 100%; height: 100%; }
+        @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+      `}} />
+    </div>
+  );
+}
+
+function NavBtn({ icon, label, active, onClick }) {
+  return (
+    <button onClick={onClick} className={`flex flex-col items-center gap-1 px-4 py-2 transition-all duration-300 ${active ? 'text-indigo-600 scale-110 font-black' : 'text-slate-400 hover:text-slate-600'}`}>
+      {React.cloneElement(icon, { size: 22, strokeWidth: active ? 2.5 : 2 })}
+      <span className="text-[10px] font-black uppercase tracking-tight">{label}</span>
+    </button>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <TripApp />
+    </ErrorBoundary>
+  );
+}
