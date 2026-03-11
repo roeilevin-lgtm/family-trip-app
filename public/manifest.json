@@ -1,0 +1,18 @@
+{
+  "name": "Family Trip Planner",
+  "short_name": "TripPlanner",
+  "description": "אפליקציית ניהול הטיולים המשפחתית שלנו",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "[https://cdn-icons-png.flaticon.com/512/825/825515.png](https://cdn-icons-png.flaticon.com/512/825/825515.png)",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
