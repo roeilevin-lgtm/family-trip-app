@@ -8,7 +8,7 @@ import {
 
 /**
  * ==========================================
- * MAIN EXPORT - MOVED TO TOP TO PREVENT ERRORS
+ * MAIN EXPORT
  * ==========================================
  */
 export default function App() {
@@ -111,11 +111,11 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div dir="rtl" className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans text-right">
-          <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full text-center border border-red-100">
+        <div dir="rtl" className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-4 font-sans text-right">
+          <div className="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-2xl max-w-md w-full text-center border border-red-100 dark:border-red-900">
             <AlertOctagon size={48} className="text-red-500 mx-auto mb-4" />
-            <h1 className="text-2xl font-black mb-2 text-slate-900">אירעה שגיאה</h1>
-            <p className="text-slate-500 mb-6">האפליקציה נתקלה בבעיה טכנית. אל דאגה, הנתונים בטוחים מקומית.</p>
+            <h1 className="text-2xl font-black mb-2 text-slate-900 dark:text-white">אירעה שגיאה</h1>
+            <p className="text-slate-500 dark:text-slate-400 mb-6">האפליקציה נתקלה בבעיה טכנית. אל דאגה, הנתונים בטוחים מקומית.</p>
             <button onClick={() => window.location.reload()} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold">טען מחדש</button>
           </div>
         </div>
@@ -443,8 +443,16 @@ function TripApp() {
     }
   }, [themeMode]);
 
+  // Apply theme to HTML root element to trigger Tailwind's 'dark:' classes reliably
   useEffect(() => { 
-    document.documentElement.className = currentTheme; 
+    const root = document.documentElement;
+    if (currentTheme === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('light');
+    } else {
+      root.classList.add('light');
+      root.classList.remove('dark');
+    }
     localStorage.setItem(THEME_PREF_KEY, themeMode); 
   }, [currentTheme, themeMode]);
 
@@ -611,11 +619,6 @@ function TripApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (exchangeRates[selectedCurrency]) setExchangeRate(Number(exchangeRates[selectedCurrency].toFixed(4))); }, [selectedCurrency, exchangeRates]);
 
-  /**
-   * --- RENDERING ---
-   */
-  const themeClass = currentTheme === 'dark' ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900';
-  
   const stats = useMemo(() => {
     let t = 0; let a = 0;
     (activities[currentDay] || []).forEach(x => {
@@ -712,9 +715,9 @@ function TripApp() {
                 <h2 className="text-3xl font-black text-slate-900 dark:text-white">אריזה</h2>
                 <button onClick={addPackingItem} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 transition-all hover:scale-105 active:scale-95"><Plus size={20}/></button>
             </div>
-            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 overflow-hidden shadow-sm">
+            <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
                 {packingList.map(item => (
-                    <div key={item.id} onClick={() => togglePackingItem(item.id)} className="p-5 border-b last:border-0 dark:border-slate-700 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                    <div key={item.id} onClick={() => togglePackingItem(item.id)} className="p-5 border-b last:border-0 border-slate-50 dark:border-slate-700 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
                         <div className="flex items-center gap-4">
                             {item.checked ? <CheckSquare className="text-green-500 shrink-0"/> : <Square className="text-slate-300 shrink-0"/>}
                             <span className={`font-bold ${item.checked ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{item.text}</span>
@@ -818,7 +821,7 @@ function TripApp() {
   };
 
   return (
-    <div dir="rtl" className={`min-h-screen flex flex-col transition-all duration-500 font-sans ${themeClass}`}>
+    <div dir="rtl" className="min-h-screen flex flex-col transition-all duration-500 font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
       {toastMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 font-bold text-sm whitespace-nowrap">{toastMessage}</div>}
 
       {/* Conflict Modal */}
@@ -836,7 +839,7 @@ function TripApp() {
           </div>
       )}
 
-      <header className={`sticky top-0 z-50 border-b p-3 flex items-center justify-between backdrop-blur-xl ${currentTheme === 'dark' ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-slate-200 shadow-sm'} ${isKidsMode ? 'border-b-4 border-b-yellow-400' : ''}`}>
+      <header className={`sticky top-0 z-50 border-b p-3 flex items-center justify-between backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 shadow-sm ${isKidsMode ? 'border-b-4 border-b-yellow-400' : ''}`}>
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-lg ${isKidsMode ? 'bg-yellow-400' : 'bg-indigo-600 shadow-indigo-500/20'}`}>
             {isKidsMode ? <Baby size={24} /> : <Map size={22} />}
