@@ -101,6 +101,13 @@ const calculateIsDaylight = (lat, lng) => {
     return hour >= sunrise && hour <= sunset;
 };
 
+// פונקציית עזר להצגת תאריכים בצורה קריאה
+const formatTabDate = (dateString) => {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return dateString;
+    return d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' });
+};
+
 /**
  * --- ERROR BOUNDARY ---
  */
@@ -169,7 +176,7 @@ function TripApp() {
   const [mapLocations, setMapLocations] = useState([]); 
   
   const [currentUser, setCurrentUser] = useState(localStorage.getItem(USER_IDENTITY_KEY) || 'אורח');
-  const [currentDay, setCurrentDay] = useState("2026-07-17");
+  const [currentDay, setCurrentDay] = useState(new Date().toISOString().split('T')[0]); // Default to today
   const [themeMode, setThemeMode] = useState('auto');
   const [currentTheme, setCurrentTheme] = useState('light');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -197,7 +204,13 @@ function TripApp() {
   const userMenuRef = useRef(null);
   const dataRefs = useRef({ activities, packingList, vaultFiles, mapLocations });
 
-  const sortedDays = useMemo(() => Object.keys(activities).sort(), [activities]);
+  // מאפשר הוספה אוטומטית של תאריך נבחר לסרגל אם הוא טרם קיים
+  const sortedDays = useMemo(() => {
+    const daysSet = new Set(Object.keys(activities));
+    daysSet.add(currentDay);
+    return Array.from(daysSet).sort();
+  }, [activities, currentDay]);
+  
   const currentDayIndex = sortedDays.indexOf(currentDay);
 
   useEffect(() => {
@@ -297,7 +310,7 @@ function TripApp() {
           showToast("סונכרן בהצלחה");
       }
     } catch (error) {
-      console.warn("Pull failed:", error.message);
+      console.warn("Pull failed (Server sleeping/Network issue):", error.message);
       if (!silent) showToast("השרת מתעורר או שאין רשת, נסה שוב עוד רגע.");
     } finally {
       if (!silent) setIsSyncing(false);
@@ -384,14 +397,10 @@ function TripApp() {
       if (savedData && Object.keys(savedData).length > 0) {
         setActivities(savedData);
         lastSyncedActivitiesStr.current = JSON.stringify(savedData);
-      } else {
-        const initialData = {
-          "2026-07-17": [
-            { id: '17_1', time: '08:00', title: 'נסיעה לשדה התעופה', location: 'נתב"ג', duration: '60', type: 'travel', completed: false }
-          ]
-        };
-        setActivities(initialData);
-        lastSyncedActivitiesStr.current = JSON.stringify(initialData);
+        
+        // set current day to the first day available if current doesn't exist
+        const defaultDay = Object.keys(savedData).sort()[0];
+        if (defaultDay) setCurrentDay(defaultDay);
       }
 
       const savedPacking = await loadLocally('packing', PACKING_DB_KEY);
@@ -444,7 +453,7 @@ function TripApp() {
     }
   }, [themeMode]);
 
-  // מנגנון ה-Dark Mode ששולט ב-Tailwind ישירות דרך כיתת ה-HTML
+  // Apply theme to HTML root element
   useEffect(() => { 
     const root = document.documentElement;
     if (currentTheme === 'dark') {
@@ -620,6 +629,8 @@ function TripApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (exchangeRates[selectedCurrency]) setExchangeRate(Number(exchangeRates[selectedCurrency].toFixed(4))); }, [selectedCurrency, exchangeRates]);
 
+  const themeClass = currentTheme === 'dark' ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900';
+  
   const stats = useMemo(() => {
     let t = 0; let a = 0;
     (activities[currentDay] || []).forEach(x => {
@@ -673,7 +684,6 @@ function TripApp() {
         </div>
     );
 
-    // --- תיקון תצוגת התמונות והכספת (Thumbnails) מתבצע כאן ---
     if (pane === 'vault') return (
         <div className="space-y-6 animate-in">
             <div className="flex justify-between items-center">
@@ -682,7 +692,6 @@ function TripApp() {
             </div>
             <div className="grid grid-cols-2 gap-4">
                 {vaultFiles.map(f => {
-                    // אלגוריתם חילוץ Thumbnail מ-Google Drive כדי לעקוף את חסימת התצוגה של גוגל
                     const driveIdMatch = f.url?.match(/id=([a-zA-Z0-9_-]+)/);
                     const driveThumbnail = driveIdMatch ? `https://drive.google.com/thumbnail?id=${driveIdMatch[1]}&sz=w800` : f.url;
                     const fileSource = f.data || driveThumbnail;
@@ -749,45 +758,45 @@ function TripApp() {
         const pinnedFiles = vaultFiles.filter(f => f.pinnedToWallet);
         
         return (
-            <div className="space-y-8 animate-in">
-                <div>
-                    <h2 className="text-3xl font-black mb-6 text-slate-900 dark:text-white">ארנק ומט"ח</h2>
-                    <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 shadow-sm space-y-6">
-                        
-                        <div className="grid grid-cols-4 gap-2 w-full bg-slate-50 dark:bg-slate-900/50 p-2 rounded-3xl">
-                            {POPULAR_CURRENCIES.map(c => (
-                                <button 
-                                    key={c.code} 
-                                    onClick={() => setSelectedCurrency(c.code)} 
-                                    className={`py-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all hover:scale-105 ${selectedCurrency === c.code ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-600/30' : 'bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
-                                >
-                                    <span className="block h-6 w-8 overflow-hidden rounded shadow-sm border border-slate-200 dark:border-slate-600">
-                                        <img src={c.flag} alt={c.code} className="w-full h-full object-cover" />
-                                    </span>
-                                    <span className="text-[11px] sm:text-xs font-black tracking-tight">{c.code} {c.symbol}</span>
-                                </button>
-                            ))}
-                        </div>
+            <div className="space-y-6 animate-in">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-3xl font-black text-slate-900 dark:text-white">ארנק ומט"ח</h2>
+                </div>
+                
+                <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 shadow-sm space-y-6">
+                    <div className="grid grid-cols-4 gap-2 w-full bg-slate-50 dark:bg-slate-900/50 p-2 rounded-3xl">
+                        {POPULAR_CURRENCIES.map(c => (
+                            <button 
+                                key={c.code} 
+                                onClick={() => setSelectedCurrency(c.code)} 
+                                className={`py-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all hover:scale-105 ${selectedCurrency === c.code ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-600/30' : 'bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                            >
+                                <span className="block h-6 w-8 overflow-hidden rounded shadow-sm border border-slate-200 dark:border-slate-600">
+                                    <img src={c.flag} alt={c.code} className="w-full h-full object-cover" />
+                                </span>
+                                <span className="text-[11px] sm:text-xs font-black tracking-tight">{c.code} {c.symbol}</span>
+                            </button>
+                        ))}
+                    </div>
 
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-4">
-                                <div className="flex-1 relative">
-                                    <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className="w-full py-4 pr-4 pl-20 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-right focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white" />
-                                    <div className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 flex items-center gap-1.5">
-                                        <img src={POPULAR_CURRENCIES.find(p => p.code === selectedCurrency)?.flag} alt="flag" className="h-4 w-6 rounded-sm object-cover shadow-sm border border-slate-200 dark:border-slate-600" />
-                                        <span>{selectedCurrency}</span>
-                                    </div>
-                                </div>
-                                <div className="text-2xl text-slate-300 font-black">=</div>
-                                <div className="flex-1 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black text-lg text-left dir-ltr border border-indigo-100 dark:border-indigo-800">
-                                    {(Number(foreignAmount) * exchangeRate).toFixed(2)} ₪
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 relative">
+                                <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className="w-full py-4 pr-4 pl-20 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-right focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white" />
+                                <div className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 flex items-center gap-1.5">
+                                    <img src={POPULAR_CURRENCIES.find(p => p.code === selectedCurrency)?.flag} alt="flag" className="h-4 w-6 rounded-sm object-cover shadow-sm border border-slate-200 dark:border-slate-600" />
+                                    <span>{selectedCurrency}</span>
                                 </div>
                             </div>
+                            <div className="text-2xl text-slate-300 font-black">=</div>
+                            <div className="flex-1 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black text-lg text-left dir-ltr border border-indigo-100 dark:border-indigo-800">
+                                {(Number(foreignAmount) * exchangeRate).toFixed(2)} ₪
+                            </div>
                         </div>
-                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border dark:border-slate-700">
-                            <span className="flex items-center gap-2"><Info size={14}/> שער המרה יציג: {exchangeRate}</span>
-                            <button onClick={fetchFXRates} className="flex items-center gap-1 text-indigo-500 hover:underline"><RefreshCcw size={12} className={isFetchingFx ? 'animate-spin' : ''}/> רענן</button>
-                        </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border dark:border-slate-700">
+                        <span className="flex items-center gap-2"><Info size={14}/> שער המרה יציג: {exchangeRate}</span>
+                        <button onClick={fetchFXRates} className="flex items-center gap-1 text-indigo-500 hover:underline"><RefreshCcw size={12} className={isFetchingFx ? 'animate-spin' : ''}/> רענן</button>
                     </div>
                 </div>
 
@@ -839,7 +848,7 @@ function TripApp() {
   };
 
   return (
-    <div dir="rtl" className="min-h-screen flex flex-col transition-all duration-500 font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+    <div dir="rtl" className={`min-h-screen flex flex-col transition-all duration-500 font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 ${themeClass}`}>
       {toastMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 font-bold text-sm whitespace-nowrap">{toastMessage}</div>}
 
       {/* Conflict Modal */}
@@ -851,7 +860,7 @@ function TripApp() {
                   <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">התגלו נתונים שונים בענן. איזו גרסה לשמור?</p>
                   <div className="space-y-3">
                       <button onClick={async () => { setActivities(conflictDialog.activities); lastSyncedActivitiesStr.current = JSON.stringify(conflictDialog.activities); await saveLocally('trips', DB_KEY, conflictDialog.activities); setConflictDialog(null); }} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30">קבל גרסת ענן</button>
-                      <button onClick={async () => { lastSyncedActivitiesStr.current = JSON.stringify(activities); pushToCloud(activities); setConflictDialog(null); }} className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">השאר גרסה שלי</button>
+                      <button onClick={async () => { lastSyncedActivitiesStr.current = JSON.stringify(activities); pushToCloud({ activities }); setConflictDialog(null); }} className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">השאר גרסה שלי</button>
                   </div>
               </div>
           </div>
@@ -898,31 +907,56 @@ function TripApp() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-32 lg:pb-8">
-        <div className="max-w-[90rem] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
-          
-          <div className={`lg:col-span-7 space-y-8 ${activeTab === 'schedule' ? 'block' : 'hidden lg:block'}`}>
-            {dailyWeather && !isKidsMode && (
-                <div className="flex items-center gap-4 p-4 bg-blue-50 dark:bg-slate-800 rounded-3xl border border-blue-100 dark:border-slate-700 shadow-sm animate-in">
-                    <div className="p-2 bg-white dark:bg-slate-700 rounded-xl shadow-sm"><SunMedium className="text-yellow-500"/></div>
-                    <div className="leading-tight">
-                        <h3 className="font-black text-lg text-slate-900 dark:text-white">{dailyWeather.temp}°C</h3>
-                        <p className="text-xs font-bold text-slate-400 uppercase">מזג האוויר ב{dailyWeather.loc}</p>
-                    </div>
-                </div>
-            )}
-
-            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-3xl shadow-inner overflow-x-auto no-scrollbar scroll-smooth border border-slate-50 dark:border-slate-900/50">
+      <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-32 lg:pb-8 flex flex-col gap-6 lg:gap-8 max-w-[90rem] mx-auto w-full">
+        
+        {/* Top Area: Days Bar & Weather (Spans full width above columns) */}
+        <div className="w-full flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+            {/* סרגל ימים הורחב לרוחב מלא בראש המסך */}
+            <div className="flex-1 w-full flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-3xl shadow-inner overflow-x-auto no-scrollbar scroll-smooth border border-slate-50 dark:border-slate-900/50">
                 {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToPrevDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronRight size={20}/></button>}
-                {sortedDays.map((day, idx) => (
-                    <button key={day} onClick={() => setCurrentDay(day)} className={`px-6 py-3 rounded-2xl font-black text-sm shrink-0 transition-all hover:scale-105 ${currentDay === day ? (isKidsMode ? 'bg-yellow-400 text-slate-900 shadow-md' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20') : 'bg-white dark:bg-slate-700 text-slate-400'}`}>יום {idx+1}</button>
+                {sortedDays.map((day) => (
+                    <button 
+                        key={day} 
+                        onClick={() => setCurrentDay(day)} 
+                        className={`px-6 py-3 rounded-2xl font-black text-sm shrink-0 transition-all hover:scale-105 ${currentDay === day ? (isKidsMode ? 'bg-yellow-400 text-slate-900 shadow-md' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20') : 'bg-white dark:bg-slate-700 text-slate-400'}`}
+                    >
+                        {formatTabDate(day)}
+                    </button>
                 ))}
                 {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToNextDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronLeft size={20}/></button>}
             </div>
 
+            {dailyWeather && !isKidsMode && (
+                <div className="shrink-0 flex items-center gap-4 p-3 lg:p-4 bg-blue-50 dark:bg-slate-800 rounded-3xl border border-blue-100 dark:border-slate-700 shadow-sm animate-in">
+                    <div className="p-2 bg-white dark:bg-slate-700 rounded-xl shadow-sm"><SunMedium className="text-yellow-500"/></div>
+                    <div className="leading-tight">
+                        <h3 className="font-black text-lg text-slate-900 dark:text-white">{dailyWeather.temp}°C</h3>
+                        <p className="text-[10px] lg:text-xs font-bold text-slate-400 uppercase">מזג האוויר ב{dailyWeather.loc}</p>
+                    </div>
+                </div>
+            )}
+        </div>
+
+        {/* Columns Area */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start flex-1 w-full">
+          
+          {/* Schedule Column */}
+          <div className={`lg:col-span-7 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-8 ${activeTab === 'schedule' ? 'block' : 'hidden lg:block'}`}>
             <section className="space-y-6">
                 <div className="flex justify-between items-center">
-                    <h2 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{isKidsMode ? 'היום בטיול!' : 'הלו"ז היומי'}</h2>
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+                            {isKidsMode ? 'היום בטיול!' : 'לוח הזמנים ליום'}
+                        </h2>
+                        {!isKidsMode && (
+                            <input 
+                                type="date" 
+                                value={currentDay} 
+                                onChange={(e) => setCurrentDay(e.target.value)} 
+                                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border-none text-sm font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer text-slate-700 dark:text-slate-200 outline-none"
+                            />
+                        )}
+                    </div>
                     
                     <div className="flex items-center gap-2">
                         {!isKidsMode && <button onClick={syncFromGoogleCalendar} className="w-14 h-14 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-2xl shadow-sm flex items-center justify-center transition-transform hover:scale-105 active:scale-95" title="סנכרן מיומן גוגל"><Calendar size={24}/></button>}
@@ -1015,12 +1049,14 @@ function TripApp() {
             </section>
           </div>
 
-          <div className={`lg:col-span-4 ${activeTab !== 'schedule' ? 'block' : 'hidden lg:block'}`}>
+          {/* Secondary Column */}
+          <div className={`lg:col-span-4 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-8 ${activeTab !== 'schedule' ? 'block' : 'hidden lg:block'}`}>
             {!isKidsMode ? renderSecondaryPane() : (
                 <div className="h-full flex flex-col items-center justify-center text-center p-12 opacity-20 grayscale select-none"><Baby size={84} className="mb-6 text-slate-400"/><h3 className="text-2xl font-black text-slate-400">אזור מבוגרים</h3><p className="text-sm">צא ממצב ילדים כדי לראות עוד כלים</p></div>
             )}
           </div>
 
+          {/* Desktop Nav Column */}
           {!isKidsMode && (
               <div className="hidden lg:flex lg:col-span-1 flex-col items-center w-full">
                   <div className="sticky top-24 flex flex-col gap-4 items-center">
@@ -1061,8 +1097,8 @@ function TripApp() {
         .dir-ltr { direction: ltr; }
         input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type="number"] { -moz-appearance: textfield; }
-        input[type="time"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; position: absolute; right: 0; width: 100%; height: 100%; }
-        input[type="time"] { position: relative; }
+        input[type="time"]::-webkit-calendar-picker-indicator, input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0; position: absolute; right: 0; width: 100%; height: 100%; }
+        input[type="time"], input[type="date"] { position: relative; }
         @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         .animate-in { animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
       `}} />
