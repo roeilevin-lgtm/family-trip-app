@@ -101,7 +101,6 @@ const calculateIsDaylight = (lat, lng) => {
     return hour >= sunrise && hour <= sunset;
 };
 
-// פונקציית עזר להצגת תאריכים בצורה קריאה
 const formatTabDate = (dateString) => {
     const d = new Date(dateString);
     if (isNaN(d.getTime())) return dateString;
@@ -176,7 +175,9 @@ function TripApp() {
   const [mapLocations, setMapLocations] = useState([]); 
   
   const [currentUser, setCurrentUser] = useState(localStorage.getItem(USER_IDENTITY_KEY) || 'אורח');
-  const [currentDay, setCurrentDay] = useState(new Date().toISOString().split('T')[0]); // Default to today
+  const [sharedCalendarId, setSharedCalendarId] = useState(localStorage.getItem(SAVED_CALENDAR_ID) || '');
+  const [currentDay, setCurrentDay] = useState(new Date().toISOString().split('T')[0]); 
+  
   const [themeMode, setThemeMode] = useState('auto');
   const [currentTheme, setCurrentTheme] = useState('light');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -202,9 +203,8 @@ function TripApp() {
   const dragItem = useRef(null);
   const dragOverItem = useRef(null);
   const userMenuRef = useRef(null);
-  const dataRefs = useRef({ activities, packingList, vaultFiles, mapLocations });
+  const dataRefs = useRef({ activities, packingList, vaultFiles, mapLocations, sharedCalendarId });
 
-  // מאפשר הוספה אוטומטית של תאריך נבחר לסרגל אם הוא טרם קיים
   const sortedDays = useMemo(() => {
     const daysSet = new Set(Object.keys(activities));
     daysSet.add(currentDay);
@@ -214,8 +214,8 @@ function TripApp() {
   const currentDayIndex = sortedDays.indexOf(currentDay);
 
   useEffect(() => {
-    dataRefs.current = { activities, packingList, vaultFiles, mapLocations };
-  }, [activities, packingList, vaultFiles, mapLocations]);
+    dataRefs.current = { activities, packingList, vaultFiles, mapLocations, sharedCalendarId };
+  }, [activities, packingList, vaultFiles, mapLocations, sharedCalendarId]);
 
   useEffect(() => {
     localStorage.setItem(USER_IDENTITY_KEY, currentUser);
@@ -229,13 +229,22 @@ function TripApp() {
   /**
    * --- CLOUD ENGINE ---
    */
-  const pushToCloud = async (newData) => {
+  const pushToCloud = async (newData = {}) => {
     if (!isOnline) return;
     setIsSyncing(true);
     
+    // אריזת הגדרת היומן בצורה סמויה כחלק מנתוני הרשימה כדי להסתנכרן ללא שינויי שרת
+    let payloadPacking = [...(newData.packingList || dataRefs.current.packingList)];
+    const cid = newData.sharedCalendarId !== undefined ? newData.sharedCalendarId : dataRefs.current.sharedCalendarId;
+    
+    payloadPacking = payloadPacking.filter(i => i.id !== 'config_calendar_id');
+    if (cid && cid.trim() !== '') {
+        payloadPacking.push({ id: 'config_calendar_id', text: cid.trim(), checked: false, owner: 'system' });
+    }
+
     const payload = {
         activities: newData.activities || dataRefs.current.activities,
-        packingList: newData.packingList || dataRefs.current.packingList,
+        packingList: payloadPacking,
         vaultFiles: newData.vaultFiles || dataRefs.current.vaultFiles
     };
 
@@ -281,10 +290,22 @@ function TripApp() {
           }
       }
 
-      if (data.packingList && JSON.stringify(data.packingList) !== JSON.stringify(dataRefs.current.packingList)) {
-          setPackingList(data.packingList);
-          await saveLocally('packing', PACKING_DB_KEY, data.packingList);
-          changed = true;
+      if (data.packingList) {
+          // חילוץ סמוי של מזהה היומן
+          const configItem = data.packingList.find(i => i.id === 'config_calendar_id');
+          const pulledCid = configItem ? configItem.text : '';
+          
+          if (pulledCid && pulledCid !== dataRefs.current.sharedCalendarId) {
+              setSharedCalendarId(pulledCid);
+              localStorage.setItem(SAVED_CALENDAR_ID, pulledCid);
+          }
+
+          const actualPacking = data.packingList.filter(i => i.id !== 'config_calendar_id');
+          if (JSON.stringify(actualPacking) !== JSON.stringify(dataRefs.current.packingList)) {
+              setPackingList(actualPacking);
+              await saveLocally('packing', PACKING_DB_KEY, actualPacking);
+              changed = true;
+          }
       }
       
       if (data.vaultFiles && data.vaultFiles.length > 0) {
@@ -310,8 +331,7 @@ function TripApp() {
           showToast("סונכרן בהצלחה");
       }
     } catch (error) {
-      console.warn("Pull failed (Server sleeping/Network issue):", error.message);
-      if (!silent) showToast("השרת מתעורר או שאין רשת, נסה שוב עוד רגע.");
+      console.warn("Pull failed:", error.message);
     } finally {
       if (!silent) setIsSyncing(false);
     }
@@ -326,18 +346,23 @@ function TripApp() {
         return;
     }
     
-    const savedCalId = localStorage.getItem(SAVED_CALENDAR_ID) || currentUser;
-    const calId = prompt("הכנס כתובת יומן גוגל (חובה לשתף אותו מראש עם אימייל הרובוט):", savedCalId);
+    if (!sharedCalendarId || sharedCalendarId.trim() === '') {
+        showToast("לא הוגדר יומן. אנא הגדר את מזהה היומן בתפריט הפרופיל (למעלה).", 4000);
+        return;
+    }
     
-    if (!calId) return;
-    localStorage.setItem(SAVED_CALENDAR_ID, calId);
     setIsSyncing(true);
     
     try {
         const calUrl = API_URL.replace('/sync', '/calendar');
-        const res = await fetch(`${calUrl}?calendarId=${encodeURIComponent(calId)}&date=${currentDay}`);
+        const res = await fetch(`${calUrl}?calendarId=${encodeURIComponent(sharedCalendarId.trim())}&date=${currentDay}`);
         
-        if (!res.ok) throw new Error('Calendar fetch failed');
+        if (!res.ok) {
+            if (res.status === 404 || res.status === 403) {
+                throw new Error("היומן לא נמצא או שחסרות הרשאות אבטחה מול גוגל.");
+            }
+            throw new Error('שגיאת רשת בגישה ליומן');
+        }
         const data = await res.json();
 
         if (data.events && data.events.length > 0) {
@@ -374,7 +399,7 @@ function TripApp() {
         }
     } catch (err) {
         console.warn("Calendar Sync Error:", err.message);
-        showToast('שגיאה בסנכרון. ודא ששיתפת את היומן עם הרובוט.');
+        showToast(err.message || 'שגיאה בסנכרון מול גוגל.');
     } finally {
         setIsSyncing(false);
     }
@@ -398,7 +423,6 @@ function TripApp() {
         setActivities(savedData);
         lastSyncedActivitiesStr.current = JSON.stringify(savedData);
         
-        // set current day to the first day available if current doesn't exist
         const defaultDay = Object.keys(savedData).sort()[0];
         if (defaultDay) setCurrentDay(defaultDay);
       }
@@ -453,7 +477,6 @@ function TripApp() {
     }
   }, [themeMode]);
 
-  // Apply theme to HTML root element
   useEffect(() => { 
     const root = document.documentElement;
     if (currentTheme === 'dark') {
@@ -625,7 +648,6 @@ function TripApp() {
   useEffect(() => { fetchFXRates(); }, []);
   useEffect(() => { fetchWeather(); }, [currentDay, isOnline]);
   
-  // Disable exhaustive-deps for exchange rate auto-update to avoid loops
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (exchangeRates[selectedCurrency]) setExchangeRate(Number(exchangeRates[selectedCurrency].toFixed(4))); }, [selectedCurrency, exchangeRates]);
 
@@ -889,8 +911,10 @@ function TripApp() {
           <div className="relative" ref={userMenuRef}>
             <button onClick={() => setShowUserMenu(!showUserMenu)} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-indigo-500 transition-colors shadow-inner"><UserCircle size={28}/></button>
             {showUserMenu && (
-                <div className="absolute left-0 mt-3 w-64 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-3xl shadow-2xl p-5 animate-in zoom-in-95 origin-top-left z-[60]">
-                    <div className="mb-5">
+                <div className="absolute left-0 mt-3 w-72 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-3xl shadow-2xl p-5 animate-in zoom-in-95 origin-top-left z-[60]">
+                    
+                    {/* User Name Config */}
+                    <div className="mb-4">
                         <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">מי משתמש באפליקציה?</label>
                         <input
                             type="text"
@@ -900,6 +924,27 @@ function TripApp() {
                             placeholder="הכנס את שמך..."
                         />
                     </div>
+
+                    {/* Shared Calendar Config */}
+                    <div className="mb-5 border-t border-slate-100 dark:border-slate-700 pt-4">
+                        <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">הגדרות משפחה (משותף)</label>
+                        <input
+                            type="text"
+                            value={sharedCalendarId}
+                            onChange={(e) => {
+                                setSharedCalendarId(e.target.value);
+                                localStorage.setItem(SAVED_CALENDAR_ID, e.target.value);
+                            }}
+                            onBlur={(e) => {
+                                pushToCloud({ sharedCalendarId: e.target.value });
+                                showToast("הגדרות היומן נשמרו ויסונכרנו לכולם");
+                            }}
+                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 dir-ltr text-left"
+                            placeholder="Calendar ID..."
+                        />
+                        <p className="text-[9px] text-slate-400 mt-1.5 leading-tight">מזהה היומן כדי לשאוב ממנו אירועים. שינוי כאן ישפיע על כל המשפחה.</p>
+                    </div>
+
                     <button onClick={() => { setIsKidsMode(!isKidsMode); setShowUserMenu(false); }} className={`w-full py-3 font-bold rounded-2xl flex items-center justify-center gap-2 transition-all hover:scale-105 ${isKidsMode ? 'bg-slate-100 text-slate-700' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'}`}><Baby size={18}/> {isKidsMode ? 'צא ממצב ילדים' : 'הפעל מצב ילדים'}</button>
                 </div>
             )}
@@ -909,9 +954,8 @@ function TripApp() {
 
       <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-32 lg:pb-8 flex flex-col gap-6 lg:gap-8 max-w-[90rem] mx-auto w-full">
         
-        {/* Top Area: Days Bar & Weather (Spans full width above columns) */}
+        {/* Top Area: Days Bar & Weather */}
         <div className="w-full flex flex-col lg:flex-row gap-4 items-start lg:items-center">
-            {/* סרגל ימים הורחב לרוחב מלא בראש המסך */}
             <div className="flex-1 w-full flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-3xl shadow-inner overflow-x-auto no-scrollbar scroll-smooth border border-slate-50 dark:border-slate-900/50">
                 {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToPrevDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronRight size={20}/></button>}
                 {sortedDays.map((day) => (
