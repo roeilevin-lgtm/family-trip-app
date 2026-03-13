@@ -107,7 +107,7 @@ const calculateIsDaylight = (lat, lng) => {
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError(error) { return { hasError: true }; }
-  componentDidCatch(error, errorInfo) { console.error("Production Error:", error, errorInfo); }
+  componentDidCatch(error, errorInfo) { console.warn("Production Error:", error, errorInfo); }
   render() {
     if (this.state.hasError) {
       return (
@@ -236,7 +236,7 @@ function TripApp() {
         lastSyncedActivitiesStr.current = JSON.stringify(payload.activities);
       }
     } catch (error) {
-      console.error("Push failed:", error);
+      console.warn("Push failed:", error.message);
     } finally {
       setIsSyncing(false);
     }
@@ -297,7 +297,8 @@ function TripApp() {
           showToast("סונכרן בהצלחה");
       }
     } catch (error) {
-      console.error("Pull failed:", error);
+      console.warn("Pull failed:", error.message);
+      if (!silent) showToast("השרת מתעורר או שאין רשת, נסה שוב עוד רגע.");
     } finally {
       if (!silent) setIsSyncing(false);
     }
@@ -359,7 +360,7 @@ function TripApp() {
             showToast('לא נמצאו אירועים ביום זה ביומן');
         }
     } catch (err) {
-        console.error("Calendar Sync Error:", err);
+        console.warn("Calendar Sync Error:", err.message);
         showToast('שגיאה בסנכרון. ודא ששיתפת את היומן עם הרובוט.');
     } finally {
         setIsSyncing(false);
@@ -443,7 +444,7 @@ function TripApp() {
     }
   }, [themeMode]);
 
-  // Apply theme to HTML root element to trigger Tailwind's 'dark:' classes reliably
+  // מנגנון ה-Dark Mode ששולט ב-Tailwind ישירות דרך כיתת ה-HTML
   useEffect(() => { 
     const root = document.documentElement;
     if (currentTheme === 'dark') {
@@ -593,7 +594,7 @@ function TripApp() {
         for (const [k, v] of Object.entries(data.rates)) inv[k] = 1 / v;
         setExchangeRates(inv);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { console.warn("FX fetch failed:", e.message); }
     finally { setIsFetchingFx(false); }
   };
 
@@ -609,7 +610,7 @@ function TripApp() {
           const wData = await wRes.json();
           setDailyWeather({ temp: Math.round(wData.current_weather.temperature), code: wData.current_weather.weathercode, loc: name });
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { console.warn("Weather fetch failed:", e.message); }
   };
 
   useEffect(() => { fetchFXRates(); }, []);
@@ -672,6 +673,7 @@ function TripApp() {
         </div>
     );
 
+    // --- תיקון תצוגת התמונות והכספת (Thumbnails) מתבצע כאן ---
     if (pane === 'vault') return (
         <div className="space-y-6 animate-in">
             <div className="flex justify-between items-center">
@@ -680,8 +682,13 @@ function TripApp() {
             </div>
             <div className="grid grid-cols-2 gap-4">
                 {vaultFiles.map(f => {
-                    const fileSource = f.url || f.data;
-                    const isPdf = f.name.toLowerCase().endsWith('.pdf') || (f.type && f.type.includes('pdf')) || (f.data && f.data.includes('application/pdf'));
+                    // אלגוריתם חילוץ Thumbnail מ-Google Drive כדי לעקוף את חסימת התצוגה של גוגל
+                    const driveIdMatch = f.url?.match(/id=([a-zA-Z0-9_-]+)/);
+                    const driveThumbnail = driveIdMatch ? `https://drive.google.com/thumbnail?id=${driveIdMatch[1]}&sz=w800` : f.url;
+                    const fileSource = f.data || driveThumbnail;
+                    
+                    const isPdf = f.name?.toLowerCase().endsWith('.pdf') || f.type?.includes('pdf') || f.data?.includes('application/pdf');
+                    const isImage = f.name?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)$/i) || f.type?.includes('image') || f.data?.includes('image/');
 
                     return (
                     <div key={f.id} className="relative aspect-[3/4] rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 group shadow-sm flex flex-col transition-all hover:shadow-md">
@@ -689,10 +696,15 @@ function TripApp() {
                             <div className="flex-1 flex flex-col items-center justify-center p-4 text-center bg-slate-50 dark:bg-slate-800/50">
                                 <FileText size={48} className="text-red-500 mb-3 drop-shadow-sm"/>
                                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate w-full px-2" dir="ltr">{f.name}</span>
-                                <a href={fileSource} download={f.name} className="mt-4 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-xl hover:bg-indigo-200 transition-colors uppercase tracking-wide">הורד</a>
+                                <a href={f.url || f.data} download={f.name} target="_blank" rel="noreferrer" className="mt-4 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-xl hover:bg-indigo-200 transition-colors uppercase tracking-wide">פתח מסמך</a>
                             </div>
+                        ) : isImage || fileSource ? (
+                            <img src={fileSource} onError={(e) => { e.target.onerror = null; e.target.src = 'https://placehold.co/400x600/f1f5f9/a4b5c6?text=Preview+Error' }} className="w-full h-full object-cover" alt={f.name} />
                         ) : (
-                            fileSource ? <img src={fileSource} className="w-full h-full object-cover" alt={f.name} /> : <div className="flex items-center justify-center h-full text-slate-300"><ImageIcon size={48}/></div>
+                            <div className="flex-1 flex flex-col items-center justify-center p-4 text-center bg-slate-50 dark:bg-slate-800/50">
+                                <ImageIcon size={48} className="text-slate-400 mb-3 drop-shadow-sm"/>
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate w-full px-2" dir="ltr">{f.name}</span>
+                            </div>
                         )}
                         
                         <button 
@@ -788,8 +800,12 @@ function TripApp() {
                     ) : (
                         <div className="grid grid-cols-2 gap-4">
                             {pinnedFiles.map(f => {
-                                const fileSource = f.url || f.data;
-                                const isPdf = f.name.toLowerCase().endsWith('.pdf') || (f.type && f.type.includes('pdf')) || (f.data && f.data.includes('application/pdf'));
+                                const driveIdMatch = f.url?.match(/id=([a-zA-Z0-9_-]+)/);
+                                const driveThumbnail = driveIdMatch ? `https://drive.google.com/thumbnail?id=${driveIdMatch[1]}&sz=w800` : f.url;
+                                const fileSource = f.data || driveThumbnail;
+                                
+                                const isPdf = f.name?.toLowerCase().endsWith('.pdf') || f.type?.includes('pdf') || f.data?.includes('application/pdf');
+                                const isImage = f.name?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)$/i) || f.type?.includes('image') || f.data?.includes('image/');
                                 
                                 return (
                                     <div key={f.id} className="relative aspect-video rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm flex flex-col group">
@@ -797,10 +813,12 @@ function TripApp() {
                                             <div className="flex-1 flex flex-col items-center justify-center p-2 text-center bg-slate-50 dark:bg-slate-900/30">
                                                 <FileText size={24} className="text-red-500 mb-1"/>
                                                 <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 truncate w-full px-1" dir="ltr">{f.name}</span>
-                                                <a href={fileSource} download={f.name} className="mt-1 px-3 py-1 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400 text-[9px] font-black rounded-lg">צפה</a>
+                                                <a href={f.url || f.data} download={f.name} target="_blank" rel="noreferrer" className="mt-1 px-3 py-1 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400 text-[9px] font-black rounded-lg">צפה</a>
                                             </div>
+                                        ) : isImage || fileSource ? (
+                                            <img src={fileSource} onError={(e) => { e.target.onerror = null; e.target.src = 'https://placehold.co/400x200/f1f5f9/a4b5c6?text=Preview+Error' }} className="w-full h-full object-cover" alt={f.name} />
                                         ) : (
-                                            <img src={fileSource} className="w-full h-full object-cover" alt={f.name} />
+                                            <div className="flex-1 flex items-center justify-center bg-slate-50 dark:bg-slate-900/30"><ImageIcon size={24} className="text-slate-400"/></div>
                                         )}
                                         <button 
                                             onClick={() => toggleVaultPin(f.id)} 
