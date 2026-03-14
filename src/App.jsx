@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Sun, Moon, Map, Calendar, Plus, Navigation, Clock, Trash2, Camera, 
-  UserCircle, MapPin, Wallet, CheckSquare, Square, 
+  Settings, MapPin, Wallet, CheckSquare, Square, UserCircle, Image as ImageIcon,
   Baby, CheckCircle, Info, MapPinned, RefreshCw, Briefcase, AlertOctagon, Calculator,
   ChevronRight, ChevronLeft, FileText, X, GripVertical, SunMedium, RefreshCcw
 } from 'lucide-react';
@@ -30,6 +30,7 @@ const VAULT_DB_KEY = `${APP_ID}_vault`;
 const THEME_PREF_KEY = `${APP_ID}_theme_pref`;
 const USER_IDENTITY_KEY = `${APP_ID}_identity`;
 const SAVED_CALENDAR_ID = `${APP_ID}_calendar_id`;
+const APP_THEME_KEY = `${APP_ID}_app_theme`;
 
 const POPULAR_CURRENCIES = [
   { code: 'EUR', label: 'אירו', flag: 'https://flagcdn.com/w40/eu.png', symbol: '€' },
@@ -43,6 +44,69 @@ const ACTIVITY_TYPES = {
   food: { label: 'אוכל', dot: 'bg-orange-500', border: 'border-orange-500', bg: 'bg-orange-100', darkBg: 'dark:bg-orange-900/30', text: 'text-orange-700', darkText: 'dark:text-orange-400', icon: '🍔' },
   travel: { label: 'נסיעה', dot: 'bg-blue-500', border: 'border-blue-500', bg: 'bg-blue-100', darkBg: 'dark:bg-blue-900/30', text: 'text-blue-700', darkText: 'dark:text-blue-400', icon: '🚗' },
   rest: { label: 'מנוחה', dot: 'bg-green-500', border: 'border-green-500', bg: 'bg-green-100', darkBg: 'dark:bg-green-900/30', text: 'text-green-700', darkText: 'dark:text-green-400', icon: '😴' }
+};
+
+const THEMES = {
+  standard: {
+    bg: 'bg-slate-50 dark:bg-slate-900',
+    bgImg: null,
+    header: 'bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800',
+    primary: 'bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl',
+    primaryText: 'text-indigo-600 dark:text-indigo-400',
+    primaryLight: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+    ring: 'focus:ring-indigo-500 focus:border-indigo-500',
+    shadow: 'shadow-indigo-500/20'
+  },
+  hoops: {
+    bg: 'bg-orange-50 dark:bg-zinc-900',
+    bgImg: 'https://images.unsplash.com/photo-1519861531473-9200262188bf?q=80&w=2000&auto=format&fit=crop',
+    header: 'bg-orange-100/80 dark:bg-zinc-900/80 border-orange-200 dark:border-zinc-800',
+    primary: 'bg-orange-600 hover:bg-orange-700 text-white rounded-full',
+    primaryText: 'text-orange-600 dark:text-orange-400',
+    primaryLight: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    ring: 'focus:ring-orange-500 focus:border-orange-500',
+    shadow: 'shadow-orange-500/20'
+  },
+  grass: {
+    bg: 'bg-green-50 dark:bg-stone-900',
+    bgImg: 'https://images.unsplash.com/photo-1533460004989-cef01064af7e?q=80&w=2000&auto=format&fit=crop',
+    header: 'bg-green-100/80 dark:bg-stone-900/80 border-green-200 dark:border-stone-800',
+    primary: 'bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl',
+    primaryText: 'text-emerald-600 dark:text-emerald-400',
+    primaryLight: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    ring: 'focus:ring-emerald-500 focus:border-emerald-500',
+    shadow: 'shadow-emerald-500/20'
+  },
+  urban: {
+    bg: 'bg-neutral-50 dark:bg-neutral-950',
+    bgImg: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=2000&auto=format&fit=crop',
+    header: 'bg-neutral-100/80 dark:bg-neutral-900/80 border-neutral-200 dark:border-neutral-800',
+    primary: 'bg-neutral-800 hover:bg-neutral-900 text-white dark:bg-neutral-200 dark:hover:bg-white dark:text-neutral-900 rounded-lg',
+    primaryText: 'text-neutral-800 dark:text-neutral-200',
+    primaryLight: 'bg-neutral-200 text-neutral-800 dark:bg-neutral-800/50 dark:text-neutral-200',
+    ring: 'focus:ring-neutral-500 focus:border-neutral-500',
+    shadow: 'shadow-neutral-500/20'
+  },
+  snow: {
+    bg: 'bg-slate-100 dark:bg-slate-900',
+    bgImg: 'https://images.unsplash.com/photo-1517298257259-f72ccd2dd3ce?q=80&w=2000&auto=format&fit=crop',
+    header: 'bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800',
+    primary: 'bg-sky-600 hover:bg-sky-700 text-white rounded-xl',
+    primaryText: 'text-sky-600 dark:text-sky-400',
+    primaryLight: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+    ring: 'focus:ring-sky-500 focus:border-sky-500',
+    shadow: 'shadow-sky-500/20'
+  },
+  beach: {
+    bg: 'bg-cyan-50 dark:bg-slate-900',
+    bgImg: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=2000&auto=format&fit=crop',
+    header: 'bg-cyan-100/80 dark:bg-slate-900/80 border-cyan-200 dark:border-slate-800',
+    primary: 'bg-teal-500 hover:bg-teal-600 text-white rounded-2xl',
+    primaryText: 'text-teal-600 dark:text-teal-400',
+    primaryLight: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+    ring: 'focus:ring-teal-500 focus:border-teal-500',
+    shadow: 'shadow-teal-500/20'
+  }
 };
 
 /**
@@ -85,22 +149,6 @@ const loadLocally = async (storeName, key) => {
   }
 };
 
-const calculateIsDaylight = (lat, lng) => {
-    const now = new Date();
-    const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
-    const hour = now.getHours() + now.getMinutes() / 60;
-    const declination = 23.45 * Math.sin((360 / 365) * (dayOfYear - 81) * (Math.PI / 180));
-    const latRad = lat * (Math.PI / 180);
-    const decRad = declination * (Math.PI / 180);
-    const cosH = -Math.tan(latRad) * Math.tan(decRad);
-    if (cosH > 1) return false; 
-    if (cosH < -1) return true; 
-    const H = Math.acos(cosH) * (180 / Math.PI) / 15;
-    const sunrise = 12 - H;
-    const sunset = 12 + H;
-    return hour >= sunrise && hour <= sunset;
-};
-
 const formatTabDate = (dateString) => {
     const d = new Date(dateString);
     if (isNaN(d.getTime())) return dateString;
@@ -134,7 +182,7 @@ class ErrorBoundary extends React.Component {
 /**
  * --- COMPONENTS ---
  */
-function SyncInput({ value, onSave, className, type = "text", ...props }) {
+function SyncInput({ value, onSave, className, type = "text", disabled = false, ...props }) {
     const [localValue, setLocalValue] = useState(value || '');
     const [isFocused, setIsFocused] = useState(false);
   
@@ -160,6 +208,7 @@ function SyncInput({ value, onSave, className, type = "text", ...props }) {
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         className={className}
+        disabled={disabled}
         {...props}
       />
     );
@@ -174,10 +223,12 @@ function TripApp() {
   const [vaultFiles, setVaultFiles] = useState([]);
   const [mapLocations, setMapLocations] = useState([]); 
   
-  const [currentUser, setCurrentUser] = useState(localStorage.getItem(USER_IDENTITY_KEY) || 'אורח');
+  const initialUser = localStorage.getItem(USER_IDENTITY_KEY) || 'אורח';
+  const [currentUser, setCurrentUser] = useState(initialUser);
   const [sharedCalendarId, setSharedCalendarId] = useState(localStorage.getItem(SAVED_CALENDAR_ID) || '');
   const [currentDay, setCurrentDay] = useState(new Date().toISOString().split('T')[0]); 
   
+  const [appTheme, setAppTheme] = useState(localStorage.getItem(APP_THEME_KEY) || 'standard');
   const [themeMode, setThemeMode] = useState('auto');
   const [currentTheme, setCurrentTheme] = useState('light');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -192,8 +243,8 @@ function TripApp() {
   
   const [dailyWeather, setDailyWeather] = useState(null);
   const [userRole, setUserRole] = useState('editor');
-  const [isKidsMode, setIsKidsMode] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isKidsMode, setIsKidsMode] = useState(['יותם', 'דורון', 'אורי'].includes(initialUser));
+  const [showSettings, setShowSettings] = useState(false); 
   
   const [isSyncing, setIsSyncing] = useState(false);
   const [toastMessage, setToastMessage] = useState(null);
@@ -202,7 +253,6 @@ function TripApp() {
   const lastSyncedActivitiesStr = useRef('{}');
   const dragItem = useRef(null);
   const dragOverItem = useRef(null);
-  const userMenuRef = useRef(null);
   const dataRefs = useRef({ activities, packingList, vaultFiles, mapLocations, sharedCalendarId });
 
   const sortedDays = useMemo(() => {
@@ -212,6 +262,8 @@ function TripApp() {
   }, [activities, currentDay]);
   
   const currentDayIndex = sortedDays.indexOf(currentDay);
+  const themeParams = THEMES[appTheme] || THEMES.standard;
+  const themeClass = currentTheme === 'dark' ? 'bg-slate-900 text-slate-100 dark' : 'bg-slate-50 text-slate-900 light';
 
   useEffect(() => {
     dataRefs.current = { activities, packingList, vaultFiles, mapLocations, sharedCalendarId };
@@ -220,6 +272,27 @@ function TripApp() {
   useEffect(() => {
     localStorage.setItem(USER_IDENTITY_KEY, currentUser);
   }, [currentUser]);
+
+  useEffect(() => {
+    localStorage.setItem(APP_THEME_KEY, appTheme);
+  }, [appTheme]);
+
+  const handleUserChange = (u) => {
+    setCurrentUser(u);
+    if (['יותם', 'דורון', 'אורי'].includes(u)) {
+        setIsKidsMode(true);
+    } else {
+        setIsKidsMode(false);
+    }
+  };
+
+  useEffect(() => {
+    if (sharedCalendarId) {
+        localStorage.setItem(SAVED_CALENDAR_ID, sharedCalendarId.trim());
+    } else {
+        localStorage.removeItem(SAVED_CALENDAR_ID);
+    }
+  }, [sharedCalendarId]);
 
   const showToast = useCallback((msg, duration = 3000) => {
     setToastMessage(msg);
@@ -233,7 +306,6 @@ function TripApp() {
     if (!isOnline) return;
     setIsSyncing(true);
     
-    // אריזת הגדרת היומן בצורה סמויה כחלק מנתוני הרשימה כדי להסתנכרן ללא שינויי שרת
     let payloadPacking = [...(newData.packingList || dataRefs.current.packingList)];
     const cid = newData.sharedCalendarId !== undefined ? newData.sharedCalendarId : dataRefs.current.sharedCalendarId;
     
@@ -291,7 +363,6 @@ function TripApp() {
       }
 
       if (data.packingList) {
-          // חילוץ סמוי של מזהה היומן
           const configItem = data.packingList.find(i => i.id === 'config_calendar_id');
           const pulledCid = configItem ? configItem.text : '';
           
@@ -338,7 +409,7 @@ function TripApp() {
   };
 
   /**
-   * --- GOOGLE CALENDAR SYNC ---
+   * --- GOOGLE CALENDAR SYNC (Advanced Sync with Diffs) ---
    */
   const syncFromGoogleCalendar = async () => {
     if (!isOnline) {
@@ -347,7 +418,8 @@ function TripApp() {
     }
     
     if (!sharedCalendarId || sharedCalendarId.trim() === '') {
-        showToast("לא הוגדר יומן. אנא הגדר את מזהה היומן בתפריט הפרופיל (למעלה).", 4000);
+        showToast("לא הוגדר יומן. אנא הגדר מזהה יומן (Calendar ID) בתפריט ההגדרות.", 4000);
+        setShowSettings(true); 
         return;
     }
     
@@ -365,37 +437,48 @@ function TripApp() {
         }
         const data = await res.json();
 
-        if (data.events && data.events.length > 0) {
+        if (data.events) {
             const newActs = [...(dataRefs.current.activities[currentDay] || [])];
-            let addedCount = 0;
             
+            // אוספים מזהים מגוגל
+            const incomingCalIds = data.events.map(ev => `cal_${ev.id}`);
+            
+            // מסננים אירועי יומן ישנים שכבר לא קיימים בגוגל
+            let finalActs = newActs.filter(a => !a.id.toString().startsWith('cal_') || incomingCalIds.includes(a.id));
+            
+            let addedCount = 0;
+            let updatedCount = 0;
+            
+            // מוסיפים/מעדכנים
             data.events.forEach(ev => {
-                if (!newActs.find(a => a.title === ev.title && a.time === ev.time)) {
-                    newActs.push({
-                        id: `cal_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-                        time: ev.time,
-                        title: ev.title,
-                        location: ev.location || 'יומן גוגל',
-                        duration: ev.duration || '60',
-                        type: 'attraction',
-                        completed: false
+                const calId = `cal_${ev.id}`;
+                const existingActIndex = finalActs.findIndex(a => a.id === calId);
+                
+                if (existingActIndex >= 0) {
+                    const oldAct = finalActs[existingActIndex];
+                    if (oldAct.title !== ev.title || oldAct.time !== ev.time || oldAct.location !== ev.location || oldAct.duration !== ev.duration) {
+                        finalActs[existingActIndex] = { 
+                            ...oldAct, title: ev.title, time: ev.time, location: ev.location, duration: ev.duration 
+                        };
+                        updatedCount++;
+                    }
+                } else {
+                    finalActs.push({
+                        id: calId, time: ev.time, title: ev.title, location: ev.location || 'יומן גוגל', duration: ev.duration || '60', type: 'attraction', completed: false
                     });
                     addedCount++;
                 }
             });
             
-            if (addedCount > 0) {
-                newActs.sort((a, b) => a.time.localeCompare(b.time));
-                const updatedActivities = { ...dataRefs.current.activities, [currentDay]: newActs };
-                setActivities(updatedActivities);
-                await saveLocally('trips', DB_KEY, updatedActivities);
-                pushToCloud({ activities: updatedActivities });
-                showToast(`נוספו ${addedCount} אירועים מהיומן`);
-            } else {
-                showToast('לא נמצאו אירועים חדשים (כנראה סונכרנו בעבר)');
-            }
+            finalActs.sort((a, b) => a.time.localeCompare(b.time));
+            const updatedActivities = { ...dataRefs.current.activities, [currentDay]: finalActs };
+            setActivities(updatedActivities);
+            await saveLocally('trips', DB_KEY, updatedActivities);
+            pushToCloud({ activities: updatedActivities });
+            
+            showToast(`סנכרון יומן: ${addedCount} הוספו, ${updatedCount} עודכנו.`);
         } else {
-            showToast('לא נמצאו אירועים ביום זה ביומן');
+            showToast('לא נתקבלו נתונים מהיומן');
         }
     } catch (err) {
         console.warn("Calendar Sync Error:", err.message);
@@ -450,25 +533,17 @@ function TripApp() {
     window.addEventListener('online', toggleOnline);
     window.addEventListener('offline', toggleOnline);
 
-    const handleClickOutside = (e) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setShowUserMenu(false);
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-
     return () => {
       window.removeEventListener('online', toggleOnline);
       window.removeEventListener('offline', toggleOnline);
-      document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
 
   useEffect(() => {
     if (themeMode === 'auto') {
-        // הסטנדרט לדסקטופ ומובייל: האזנה להגדרות מערכת ההפעלה (Dark Mode ברמת ה-OS)
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
         setCurrentTheme(mediaQuery.matches ? 'dark' : 'light');
         
-        // מאזין לשינויים (אם המשתמש מחליף מצב בווינדוס/מאק, האפליקציה תגיב מיד)
         const handleChange = (e) => setCurrentTheme(e.matches ? 'dark' : 'light');
         if (mediaQuery.addEventListener) {
             mediaQuery.addEventListener('change', handleChange);
@@ -509,6 +584,13 @@ function TripApp() {
     const idx = dayActs.findIndex(a => a.id === id);
     if (idx === -1) return;
 
+    // חסימת עריכת שדות מיומן גוגל
+    const isCalEvent = id.toString().startsWith('cal_');
+    if (isCalEvent && ['time', 'title', 'location', 'duration'].includes(field)) {
+        showToast("לא ניתן לערוך אירוע מסונכרן. ערוך ביומן גוגל.");
+        return;
+    }
+
     const original = dayActs[idx];
     if (original[field] === value) return; 
 
@@ -541,6 +623,10 @@ function TripApp() {
 
   const removeActivity = async (id) => {
     if (userRole !== 'editor') return;
+    if (id.toString().startsWith('cal_')) {
+        showToast("לא ניתן למחוק אירוע מסונכרן. מחק מגוגל קלנדר.");
+        return;
+    }
     const updatedActivities = { ...activities, [currentDay]: activities[currentDay].filter(a => a.id !== id) };
     setActivities(updatedActivities);
     await saveLocally('trips', DB_KEY, updatedActivities);
@@ -651,12 +737,8 @@ function TripApp() {
 
   useEffect(() => { fetchFXRates(); }, []);
   useEffect(() => { fetchWeather(); }, [currentDay, isOnline]);
-  
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (exchangeRates[selectedCurrency]) setExchangeRate(Number(exchangeRates[selectedCurrency].toFixed(4))); }, [selectedCurrency, exchangeRates]);
 
-  const themeClass = currentTheme === 'dark' ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900';
-  
   const stats = useMemo(() => {
     let t = 0; let a = 0;
     (activities[currentDay] || []).forEach(x => {
@@ -670,7 +752,7 @@ function TripApp() {
     const pane = activeTab === 'schedule' ? 'map' : activeTab;
     
     if (pane === 'map') return (
-        <div className="space-y-6 animate-in">
+        <div className="space-y-6 animate-in relative z-10">
             <div className="flex justify-between items-center">
                 <h2 className="text-3xl font-black text-slate-900 dark:text-white">מיקומים שמורים</h2>
                 <div className="text-[10px] bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full font-bold text-slate-500 flex items-center gap-1">
@@ -700,7 +782,7 @@ function TripApp() {
                                 </div>
                                 <h3 className="font-bold text-lg text-slate-700 dark:text-slate-200">{loc.name}</h3>
                             </div>
-                            <div className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                            <div className={`w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center ${themeParams.primaryText} group-hover:${themeParams.primary.split(' ')[0]} group-hover:text-white transition-colors`}>
                                 <Navigation size={18}/>
                             </div>
                         </a>
@@ -711,10 +793,10 @@ function TripApp() {
     );
 
     if (pane === 'vault') return (
-        <div className="space-y-6 animate-in">
+        <div className="space-y-6 animate-in relative z-10">
             <div className="flex justify-between items-center">
                 <h2 className="text-3xl font-black text-slate-900 dark:text-white">כספת (Vault)</h2>
-                <label className="p-3 bg-indigo-600 text-white rounded-2xl cursor-pointer shadow-lg hover:bg-indigo-700 transition-all"><Camera size={20}/><input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileUpload} /></label>
+                <label className={`p-3 ${themeParams.primary} shadow-lg transition-all cursor-pointer`}><Camera size={20}/><input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileUpload} /></label>
             </div>
             <div className="grid grid-cols-2 gap-4">
                 {vaultFiles.map(f => {
@@ -731,7 +813,7 @@ function TripApp() {
                             <div className="flex-1 flex flex-col items-center justify-center p-4 text-center bg-slate-50 dark:bg-slate-800/50">
                                 <FileText size={48} className="text-red-500 mb-3 drop-shadow-sm"/>
                                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate w-full px-2" dir="ltr">{f.name}</span>
-                                <a href={f.url || f.data} download={f.name} target="_blank" rel="noreferrer" className="mt-4 px-4 py-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] font-black rounded-xl hover:bg-indigo-200 transition-colors uppercase tracking-wide">פתח מסמך</a>
+                                <a href={f.url || f.data} download={f.name} target="_blank" rel="noreferrer" className={`mt-4 px-4 py-2 ${themeParams.primaryLight} text-[10px] font-black rounded-xl transition-colors uppercase tracking-wide`}>פתח מסמך</a>
                             </div>
                         ) : isImage || fileSource ? (
                             <img src={fileSource} onError={(e) => { e.target.onerror = null; e.target.src = 'https://placehold.co/400x600/f1f5f9/a4b5c6?text=Preview+Error' }} className="w-full h-full object-cover" alt={f.name} />
@@ -757,10 +839,10 @@ function TripApp() {
         </div>
     );
     if (pane === 'packing') return (
-        <div className="space-y-6 animate-in">
+        <div className="space-y-6 animate-in relative z-10">
             <div className="flex justify-between items-center">
                 <h2 className="text-3xl font-black text-slate-900 dark:text-white">אריזה</h2>
-                <button onClick={addPackingItem} className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg hover:bg-indigo-700 transition-all hover:scale-105 active:scale-95"><Plus size={20}/></button>
+                <button onClick={addPackingItem} className={`p-3 ${themeParams.primary} shadow-lg transition-all hover:scale-105 active:scale-95`}><Plus size={20}/></button>
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] border border-slate-100 dark:border-slate-700 overflow-hidden shadow-sm">
                 {packingList.map(item => (
@@ -784,45 +866,45 @@ function TripApp() {
         const pinnedFiles = vaultFiles.filter(f => f.pinnedToWallet);
         
         return (
-            <div className="space-y-6 animate-in">
-                <div className="flex justify-between items-center">
-                    <h2 className="text-3xl font-black text-slate-900 dark:text-white">ארנק ומט"ח</h2>
-                </div>
-                
-                <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 shadow-sm space-y-6">
-                    <div className="grid grid-cols-4 gap-2 w-full bg-slate-50 dark:bg-slate-900/50 p-2 rounded-3xl">
-                        {POPULAR_CURRENCIES.map(c => (
-                            <button 
-                                key={c.code} 
-                                onClick={() => setSelectedCurrency(c.code)} 
-                                className={`py-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all hover:scale-105 ${selectedCurrency === c.code ? 'bg-indigo-600 text-white shadow-md ring-2 ring-indigo-600/30' : 'bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
-                            >
-                                <span className="block h-6 w-8 overflow-hidden rounded shadow-sm border border-slate-200 dark:border-slate-600">
-                                    <img src={c.flag} alt={c.code} className="w-full h-full object-cover" />
-                                </span>
-                                <span className="text-[11px] sm:text-xs font-black tracking-tight">{c.code} {c.symbol}</span>
-                            </button>
-                        ))}
-                    </div>
+            <div className="space-y-8 animate-in relative z-10">
+                <div>
+                    <h2 className="text-3xl font-black mb-6 text-slate-900 dark:text-white">ארנק ומט"ח</h2>
+                    <div className="p-6 bg-white dark:bg-slate-800 rounded-[2.5rem] border dark:border-slate-700 shadow-sm space-y-6">
+                        
+                        <div className="grid grid-cols-4 gap-2 w-full bg-slate-50 dark:bg-slate-900/50 p-2 rounded-3xl">
+                            {POPULAR_CURRENCIES.map(c => (
+                                <button 
+                                    key={c.code} 
+                                    onClick={() => setSelectedCurrency(c.code)} 
+                                    className={`py-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all hover:scale-105 ${selectedCurrency === c.code ? `${themeParams.primary} ${themeParams.shadow} ring-2 ${themeParams.ring}` : 'bg-transparent text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                                >
+                                    <span className="block h-6 w-8 overflow-hidden rounded shadow-sm border border-slate-200 dark:border-slate-600">
+                                        <img src={c.flag} alt={c.code} className="w-full h-full object-cover" />
+                                    </span>
+                                    <span className="text-[11px] sm:text-xs font-black tracking-tight">{c.code} {c.symbol}</span>
+                                </button>
+                            ))}
+                        </div>
 
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-4">
-                            <div className="flex-1 relative">
-                                <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className="w-full py-4 pr-4 pl-20 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-right focus:ring-2 focus:ring-indigo-500 text-slate-900 dark:text-white" />
-                                <div className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 flex items-center gap-1.5">
-                                    <img src={POPULAR_CURRENCIES.find(p => p.code === selectedCurrency)?.flag} alt="flag" className="h-4 w-6 rounded-sm object-cover shadow-sm border border-slate-200 dark:border-slate-600" />
-                                    <span>{selectedCurrency}</span>
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-4">
+                                <div className="flex-1 relative">
+                                    <input type="number" placeholder="סכום" value={foreignAmount} onChange={(e)=>setForeignAmount(e.target.value)} className={`w-full py-4 pr-4 pl-20 rounded-2xl bg-slate-50 dark:bg-slate-900 border-none font-black text-lg text-right ${themeParams.ring} text-slate-900 dark:text-white`} />
+                                    <div className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 flex items-center gap-1.5">
+                                        <img src={POPULAR_CURRENCIES.find(p => p.code === selectedCurrency)?.flag} alt="flag" className="h-4 w-6 rounded-sm object-cover shadow-sm border border-slate-200 dark:border-slate-600" />
+                                        <span>{selectedCurrency}</span>
+                                    </div>
+                                </div>
+                                <div className="text-2xl text-slate-300 font-black">=</div>
+                                <div className={`flex-1 p-4 rounded-2xl ${themeParams.primaryLight} font-black text-lg text-left dir-ltr border border-slate-100 dark:border-slate-800`}>
+                                    {(Number(foreignAmount) * exchangeRate).toFixed(2)} ₪
                                 </div>
                             </div>
-                            <div className="text-2xl text-slate-300 font-black">=</div>
-                            <div className="flex-1 p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-black text-lg text-left dir-ltr border border-indigo-100 dark:border-indigo-800">
-                                {(Number(foreignAmount) * exchangeRate).toFixed(2)} ₪
-                            </div>
                         </div>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border dark:border-slate-700">
-                        <span className="flex items-center gap-2"><Info size={14}/> שער המרה יציג: {exchangeRate}</span>
-                        <button onClick={fetchFXRates} className="flex items-center gap-1 text-indigo-500 hover:underline"><RefreshCcw size={12} className={isFetchingFx ? 'animate-spin' : ''}/> רענן</button>
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border dark:border-slate-700">
+                            <span className="flex items-center gap-2"><Info size={14}/> שער המרה יציג: {exchangeRate}</span>
+                            <button onClick={fetchFXRates} className={`flex items-center gap-1 ${themeParams.primaryText} hover:underline`}><RefreshCcw size={12} className={isFetchingFx ? 'animate-spin' : ''}/> רענן</button>
+                        </div>
                     </div>
                 </div>
 
@@ -848,7 +930,7 @@ function TripApp() {
                                             <div className="flex-1 flex flex-col items-center justify-center p-2 text-center bg-slate-50 dark:bg-slate-900/30">
                                                 <FileText size={24} className="text-red-500 mb-1"/>
                                                 <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 truncate w-full px-1" dir="ltr">{f.name}</span>
-                                                <a href={f.url || f.data} download={f.name} target="_blank" rel="noreferrer" className="mt-1 px-3 py-1 bg-indigo-50 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400 text-[9px] font-black rounded-lg">צפה</a>
+                                                <a href={f.url || f.data} download={f.name} target="_blank" rel="noreferrer" className={`mt-1 px-3 py-1 ${themeParams.primaryLight} text-[9px] font-black rounded-lg`}>צפה</a>
                                             </div>
                                         ) : isImage || fileSource ? (
                                             <img src={fileSource} onError={(e) => { e.target.onerror = null; e.target.src = 'https://placehold.co/400x200/f1f5f9/a4b5c6?text=Preview+Error' }} className="w-full h-full object-cover" alt={f.name} />
@@ -874,10 +956,17 @@ function TripApp() {
   };
 
   return (
-    <div dir="rtl" className={`min-h-screen flex flex-col transition-all duration-500 font-sans bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 ${themeClass}`}>
+    <div dir="rtl" className={`min-h-screen flex flex-col transition-all duration-500 font-sans ${themeParams.bg} text-slate-900 dark:text-slate-100 ${themeClass}`}>
+      
+      {themeParams.bgImg && (
+        <div 
+          className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-10 dark:opacity-5 pointer-events-none transition-opacity duration-500"
+          style={{ backgroundImage: `url('${themeParams.bgImg}')` }}
+        />
+      )}
+
       {toastMessage && <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-full shadow-2xl z-[100] animate-in fade-in slide-in-from-top-4 font-bold text-sm whitespace-nowrap">{toastMessage}</div>}
 
-      {/* Conflict Modal */}
       {conflictDialog && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in">
               <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-2xl max-w-sm w-full text-center border border-slate-100 dark:border-slate-700">
@@ -885,16 +974,110 @@ function TripApp() {
                   <h2 className="text-xl font-black mb-2 text-slate-900 dark:text-white">קונפליקט גרסאות</h2>
                   <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">התגלו נתונים שונים בענן. איזו גרסה לשמור?</p>
                   <div className="space-y-3">
-                      <button onClick={async () => { setActivities(conflictDialog.activities); lastSyncedActivitiesStr.current = JSON.stringify(conflictDialog.activities); await saveLocally('trips', DB_KEY, conflictDialog.activities); setConflictDialog(null); }} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/30">קבל גרסת ענן</button>
+                      <button onClick={async () => { setActivities(conflictDialog.activities); lastSyncedActivitiesStr.current = JSON.stringify(conflictDialog.activities); await saveLocally('trips', DB_KEY, conflictDialog.activities); setConflictDialog(null); }} className={`w-full py-3 ${themeParams.primary} rounded-xl font-bold transition-colors shadow-lg ${themeParams.shadow}`}>קבל גרסת ענן</button>
                       <button onClick={async () => { lastSyncedActivitiesStr.current = JSON.stringify(activities); pushToCloud({ activities }); setConflictDialog(null); }} className="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">השאר גרסה שלי</button>
                   </div>
               </div>
           </div>
       )}
 
-      <header className={`sticky top-0 z-50 border-b p-3 flex items-center justify-between backdrop-blur-xl bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-800 shadow-sm ${isKidsMode ? 'border-b-4 border-b-yellow-400' : ''}`}>
+      {showSettings && (
+          <div 
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}
+          >
+              <div className="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh] border border-slate-100 dark:border-slate-700 relative z-10">
+                  <div className="p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+                      <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2"><Settings size={20}/> הגדרות המערכת</h2>
+                      <button onClick={() => setShowSettings(false)} className="p-2 text-slate-400 hover:text-red-500 rounded-full transition-colors bg-slate-100 dark:bg-slate-700"><X size={16}/></button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto space-y-6">
+                      <div className="mb-4">
+                          <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">מי משתמש באפליקציה?</label>
+                          <div className="flex flex-wrap gap-2">
+                              {['רועי', 'יעלה', 'יותם', 'דורון', 'אורי', 'אורח'].map(u => (
+                                  <button
+                                      key={u}
+                                      onClick={() => handleUserChange(u)}
+                                      className={`px-3 py-2 rounded-xl text-sm font-black transition-all flex-grow text-center ${currentUser === u ? `${themeParams.primary.split(' ')[0]} text-white shadow-md ring-2 ${themeParams.ring}` : 'bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
+                                  >
+                                      {u}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
+
+                      <div className="border-t border-slate-100 dark:border-slate-700 pt-5">
+                          <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">תצוגה (Theme)</label>
+                          <div className="flex bg-slate-100 dark:bg-slate-900 rounded-2xl p-1 gap-1">
+                              {['light', 'dark', 'auto'].map(t => (
+                                  <button 
+                                      key={t} 
+                                      onClick={() => setThemeMode(t)} 
+                                      className={`flex-1 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${themeMode === t ? `bg-white dark:bg-slate-700 ${themeParams.primaryText} shadow-sm` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+                                  >
+                                      {t === 'light' ? <Sun size={14}/> : t === 'dark' ? <Moon size={14}/> : <MapPin size={14}/>}
+                                      {t === 'light' ? 'בהיר' : t === 'dark' ? 'כהה' : 'אוטומטי'}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
+
+                      <div className="border-t border-slate-100 dark:border-slate-700 pt-5">
+                          <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">סגנון עיצוב</label>
+                          <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-slate-900 rounded-2xl p-1">
+                              {[
+                                  { id: 'standard', label: 'רגיל' },
+                                  { id: 'hoops', label: 'כדורסל 🏀' },
+                                  { id: 'grass', label: 'דשא 🌿' },
+                                  { id: 'urban', label: 'אורבני 🏙️' },
+                                  { id: 'snow', label: 'לבן נקי' },
+                                  { id: 'beach', label: 'חופים 🏖️' }
+                              ].map(t => (
+                                  <button 
+                                      key={t.id} 
+                                      onClick={() => setAppTheme(t.id)} 
+                                      className={`py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${appTheme === t.id ? `bg-white dark:bg-slate-700 ${themeParams.primaryText} shadow-sm` : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+                                  >
+                                      {t.label}
+                                  </button>
+                              ))}
+                          </div>
+                      </div>
+
+                      <div className="border-t border-slate-100 dark:border-slate-700 pt-5">
+                          <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">יומן גוגל (משותף לכל המשפחה)</label>
+                          <input
+                              type="text"
+                              value={sharedCalendarId}
+                              onChange={(e) => setSharedCalendarId(e.target.value)}
+                              onBlur={(e) => {
+                                  pushToCloud({ sharedCalendarId: e.target.value });
+                                  if(e.target.value) showToast("הגדרות היומן סונכרנו לכולם");
+                              }}
+                              className={`w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 ${themeParams.ring} dir-ltr text-left transition-all`}
+                              placeholder="example@group.calendar.google.com"
+                          />
+                          <p className="text-[10px] font-bold text-slate-400 mt-2 leading-relaxed">מזהה היומן כדי לשאוב אירועים. שינוי כאן ישפיע על כל המשפחה מיד.</p>
+                      </div>
+
+                      <div className="border-t border-slate-100 dark:border-slate-700 pt-5">
+                          <button 
+                              onClick={() => { setIsKidsMode(!isKidsMode); setShowSettings(false); }} 
+                              className={`w-full py-4 font-black rounded-2xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-95 shadow-sm ${isKidsMode ? 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200' : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500 border border-yellow-200 dark:border-yellow-800'}`}
+                          >
+                              <Baby size={20}/> {isKidsMode ? 'צא ממצב ילדים' : 'הפעל מצב ילדים'}
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      <header className={`sticky top-0 z-50 border-b p-3 flex items-center justify-between backdrop-blur-xl transition-colors relative ${themeParams.header} ${isKidsMode ? 'border-b-4 border-b-yellow-400' : ''}`}>
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-white shadow-lg ${isKidsMode ? 'bg-yellow-400' : 'bg-indigo-600 shadow-indigo-500/20'}`}>
+          <div className={`w-10 h-10 flex items-center justify-center text-white shadow-lg ${isKidsMode ? 'bg-yellow-400 rounded-2xl' : `${themeParams.primary}`}`}>
             {isKidsMode ? <Baby size={24} /> : <Map size={22} />}
           </div>
           <div className="leading-tight">
@@ -902,76 +1085,34 @@ function TripApp() {
             {!isOnline && <span className="text-[10px] text-orange-500 bg-orange-100 dark:bg-orange-900/30 px-2 rounded-full font-bold ml-1">אופליין</span>}
           </div>
         </div>
+        
         <div className="flex items-center gap-2">
           {!isKidsMode && isOnline && (
-              <button onClick={() => pullFromCloud(false)} className="p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-xl transition-colors" title="משוך נתונים מהענן">
+              <button onClick={() => pullFromCloud(false)} className={`p-2 ${themeParams.primaryText} hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors`} title="סנכרן נתונים מהענן">
                   <RefreshCw size={20} className={isSyncing ? 'animate-spin' : ''} />
               </button>
           )}
-          <button onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'auto')} className="p-2 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors" title={themeMode === 'auto' ? 'מבוסס מיקום ושמש' : 'ידני'}>
-             {themeMode === 'auto' ? <MapPin size={20} className="text-indigo-500"/> : (currentTheme === 'dark' ? <Moon size={20}/> : <Sun size={20}/>)}
+          <button onClick={() => setShowSettings(true)} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors">
+              <Settings size={22}/>
           </button>
-          
-          <div className="relative" ref={userMenuRef}>
-            <button onClick={() => setShowUserMenu(!showUserMenu)} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-indigo-500 transition-colors shadow-inner"><UserCircle size={28}/></button>
-            {showUserMenu && (
-                <div className="absolute left-0 mt-3 w-72 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-3xl shadow-2xl p-5 animate-in zoom-in-95 origin-top-left z-[60]">
-                    
-                    {/* User Name Config */}
-                    <div className="mb-4">
-                        <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">מי משתמש באפליקציה?</label>
-                        <input
-                            type="text"
-                            value={currentUser}
-                            onChange={(e) => setCurrentUser(e.target.value)}
-                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            placeholder="הכנס את שמך..."
-                        />
-                    </div>
-
-                    {/* Shared Calendar Config */}
-                    <div className="mb-5 border-t border-slate-100 dark:border-slate-700 pt-4">
-                        <label className="block text-[11px] uppercase tracking-wide font-black text-slate-400 mb-2">הגדרות משפחה (משותף)</label>
-                        <input
-                            type="text"
-                            value={sharedCalendarId}
-                            onChange={(e) => {
-                                setSharedCalendarId(e.target.value);
-                                localStorage.setItem(SAVED_CALENDAR_ID, e.target.value);
-                            }}
-                            onBlur={(e) => {
-                                pushToCloud({ sharedCalendarId: e.target.value });
-                                showToast("הגדרות היומן נשמרו ויסונכרנו לכולם");
-                            }}
-                            className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 dir-ltr text-left"
-                            placeholder="Calendar ID..."
-                        />
-                        <p className="text-[9px] text-slate-400 mt-1.5 leading-tight">מזהה היומן כדי לשאוב ממנו אירועים. שינוי כאן ישפיע על כל המשפחה.</p>
-                    </div>
-
-                    <button onClick={() => { setIsKidsMode(!isKidsMode); setShowUserMenu(false); }} className={`w-full py-3 font-bold rounded-2xl flex items-center justify-center gap-2 transition-all hover:scale-105 ${isKidsMode ? 'bg-slate-100 text-slate-700' : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'}`}><Baby size={18}/> {isKidsMode ? 'צא ממצב ילדים' : 'הפעל מצב ילדים'}</button>
-                </div>
-            )}
-          </div>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-32 lg:pb-8 flex flex-col gap-6 lg:gap-8 max-w-[90rem] mx-auto w-full">
+      <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-32 lg:pb-8 flex flex-col gap-6 lg:gap-8 max-w-[90rem] mx-auto w-full relative z-10">
         
-        {/* Top Area: Days Bar & Weather */}
         <div className="w-full flex flex-col lg:flex-row gap-4 items-start lg:items-center">
             <div className="flex-1 w-full flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-3xl shadow-inner overflow-x-auto no-scrollbar scroll-smooth border border-slate-50 dark:border-slate-900/50">
-                {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToPrevDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronRight size={20}/></button>}
+                {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToPrevDay} className={`p-2 ${themeParams.primaryText} hidden sm:block`}><ChevronRight size={20}/></button>}
                 {sortedDays.map((day) => (
                     <button 
                         key={day} 
                         onClick={() => setCurrentDay(day)} 
-                        className={`px-6 py-3 rounded-2xl font-black text-sm shrink-0 transition-all hover:scale-105 ${currentDay === day ? (isKidsMode ? 'bg-yellow-400 text-slate-900 shadow-md' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20') : 'bg-white dark:bg-slate-700 text-slate-400'}`}
+                        className={`px-6 py-3 font-black text-sm shrink-0 transition-all hover:scale-105 ${currentDay === day ? (isKidsMode ? 'bg-yellow-400 text-slate-900 shadow-md rounded-2xl' : `${themeParams.primary} shadow-lg ${themeParams.shadow}`) : 'bg-white dark:bg-slate-700 text-slate-400 rounded-2xl'}`}
                     >
                         {formatTabDate(day)}
                     </button>
                 ))}
-                {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToNextDay} className="p-2 text-indigo-500 hidden sm:block"><ChevronLeft size={20}/></button>}
+                {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToNextDay} className={`p-2 ${themeParams.primaryText} hidden sm:block`}><ChevronLeft size={20}/></button>}
             </div>
 
             {dailyWeather && !isKidsMode && (
@@ -985,10 +1126,8 @@ function TripApp() {
             )}
         </div>
 
-        {/* Columns Area */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start flex-1 w-full">
           
-          {/* Schedule Column */}
           <div className={`lg:col-span-7 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-8 ${activeTab === 'schedule' ? 'block' : 'hidden lg:block'}`}>
             <section className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -1001,14 +1140,14 @@ function TripApp() {
                                 type="date" 
                                 value={currentDay} 
                                 onChange={(e) => setCurrentDay(e.target.value)} 
-                                className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border-none text-sm font-bold focus:ring-2 focus:ring-indigo-500 cursor-pointer text-slate-700 dark:text-slate-200 outline-none"
+                                className={`p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border-none text-sm font-bold focus:ring-2 ${themeParams.ring} cursor-pointer text-slate-700 dark:text-slate-200 outline-none`}
                             />
                         )}
                     </div>
                     
                     <div className="flex items-center gap-2">
-                        {!isKidsMode && <button onClick={syncFromGoogleCalendar} className="w-14 h-14 bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-2xl shadow-sm flex items-center justify-center transition-transform hover:scale-105 active:scale-95" title="סנכרן מיומן גוגל"><Calendar size={24}/></button>}
-                        {!isKidsMode && <button onClick={addActivity} className="w-14 h-14 bg-indigo-600 text-white rounded-2xl shadow-xl flex items-center justify-center active:scale-90 transition-transform hover:scale-110 hover:shadow-indigo-500/40" title="הוסף פעילות חדשה"><Plus size={32}/></button>}
+                        {!isKidsMode && <button onClick={syncFromGoogleCalendar} className={`w-14 h-14 ${themeParams.primaryLight} rounded-2xl shadow-sm flex items-center justify-center transition-transform hover:scale-105 active:scale-95`} title="סנכרן מיומן גוגל"><Calendar size={24}/></button>}
+                        {!isKidsMode && <button onClick={addActivity} className={`w-14 h-14 ${themeParams.primary} shadow-xl flex items-center justify-center active:scale-90 transition-transform hover:scale-110 ${themeParams.shadow}`} title="הוסף פעילות חדשה"><Plus size={32}/></button>}
                     </div>
                 </div>
 
@@ -1016,6 +1155,7 @@ function TripApp() {
                     <div className="absolute top-4 bottom-4 right-0 w-1 bg-slate-200 dark:bg-slate-800 rounded-full"></div>
                     {(activities[currentDay] || []).map((act, idx) => {
                         const type = ACTIVITY_TYPES[act.type || 'attraction'];
+                        const isCalEvent = act.id.toString().startsWith('cal_');
                         return (
                             <div 
                                 key={act.id} 
@@ -1030,7 +1170,7 @@ function TripApp() {
                                 <div className={`p-4 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-3xl shadow-sm border-r-4 ${act.completed ? 'border-r-green-500' : type.border} flex items-center gap-4 group hover:shadow-md transition-all`}>
                                     
                                     {!isKidsMode && userRole === 'editor' && (
-                                        <div className="cursor-move text-slate-300 dark:text-slate-600 hover:text-indigo-500 touch-none ml-1">
+                                        <div className={`cursor-move text-slate-300 dark:text-slate-600 hover:${themeParams.primaryText} touch-none ml-1`}>
                                             <GripVertical size={20} />
                                         </div>
                                     )}
@@ -1041,22 +1181,25 @@ function TripApp() {
                                                 <button onClick={()=>isKidsMode ? handleActivityEdit(act.id, 'completed', !act.completed) : cycleType(act.id, act.type)} className={`w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 transition-transform hover:scale-110 active:scale-90 ${act.completed ? 'bg-green-500 text-white' : (type.bg + ' ' + type.darkBg)}`}>{act.completed ? <CheckCircle size={20}/> : type.icon}</button>
                                                 <div className="min-w-0 flex-1">
                                                     <div className="flex items-center gap-2">
+                                                        {isCalEvent && <Calendar size={14} className="text-blue-500 opacity-70 shrink-0" title="מסונכרן מיומן גוגל" />}
                                                         <SyncInput 
                                                           type="time" 
                                                           value={act.time} 
+                                                          disabled={isCalEvent}
                                                           onSave={(val)=>handleActivityEdit(act.id, 'time', val)} 
-                                                          className={`text-[10px] font-black p-0.5 rounded border-none focus:ring-1 focus:ring-indigo-500 bg-transparent ${act.completed ? 'bg-green-100 text-green-700' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300'}`} 
+                                                          className={`text-[10px] font-black p-0.5 rounded border-none focus:ring-1 ${themeParams.ring} bg-transparent ${act.completed ? 'bg-green-100 text-green-700' : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300'} ${isCalEvent ? 'opacity-60 cursor-not-allowed' : ''}`} 
                                                         />
                                                         <SyncInput 
                                                           type="text" 
                                                           value={act.title} 
+                                                          disabled={isCalEvent}
                                                           onSave={(val)=>handleActivityEdit(act.id, 'title', val)} 
-                                                          className={`block w-full font-bold text-lg bg-transparent focus:outline-none truncate border-b border-transparent focus:border-indigo-500 text-slate-900 dark:text-white ${act.completed ? 'line-through text-slate-400' : ''}`} 
+                                                          className={`block w-full font-bold text-lg bg-transparent focus:outline-none truncate border-b border-transparent ${themeParams.ring.replace('focus:ring-', 'focus:border-')} text-slate-900 dark:text-white ${act.completed ? 'line-through text-slate-400' : ''} ${isCalEvent ? 'opacity-60 cursor-not-allowed' : ''}`} 
                                                         />
                                                     </div>
                                                 </div>
                                             </div>
-                                            {!isKidsMode && <button onClick={()=>removeActivity(act.id)} className="text-slate-200 dark:text-slate-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all ml-2"><Trash2 size={16}/></button>}
+                                            {(!isKidsMode && !isCalEvent) && <button onClick={()=>removeActivity(act.id)} className="text-slate-200 dark:text-slate-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all ml-2"><Trash2 size={16}/></button>}
                                         </div>
                                         <div className="flex items-center gap-3 mt-2 text-[11px] font-bold text-slate-400">
                                             <div className="flex items-center gap-1 truncate max-w-[150px]">
@@ -1064,8 +1207,9 @@ function TripApp() {
                                                 <SyncInput 
                                                   type="text" 
                                                   value={act.location} 
+                                                  disabled={isCalEvent}
                                                   onSave={(val)=>handleActivityEdit(act.id, 'location', val)} 
-                                                  className="bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 w-full"
+                                                  className={`bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 w-full ${isCalEvent ? 'opacity-60 cursor-not-allowed' : ''}`}
                                                 />
                                             </div>
                                             <div className="flex items-center gap-1">
@@ -1073,8 +1217,9 @@ function TripApp() {
                                                 <SyncInput 
                                                   type="number" 
                                                   value={act.duration} 
+                                                  disabled={isCalEvent}
                                                   onSave={(val)=>handleActivityEdit(act.id, 'duration', val)} 
-                                                  className="bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 w-8 text-center"
+                                                  className={`bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 w-8 text-center ${isCalEvent ? 'opacity-60 cursor-not-allowed' : ''}`}
                                                 />
                                                 דק'
                                             </div>
@@ -1089,7 +1234,7 @@ function TripApp() {
 
                 {!isKidsMode && (activities[currentDay] || []).length > 0 && (
                     <div className="mt-8 p-6 bg-slate-50 dark:bg-slate-800 rounded-[2.5rem] flex justify-around text-center border border-slate-100 dark:border-slate-700 shadow-inner">
-                        <div><p className="text-[10px] uppercase font-bold text-slate-400 mb-1 tracking-widest">פעילות נטו</p><p className="font-black text-xl text-indigo-600 dark:text-indigo-400">{Math.floor(stats.activity/60)} ש' ו-{stats.activity%60} ד'</p></div>
+                        <div><p className="text-[10px] uppercase font-bold text-slate-400 mb-1 tracking-widest">פעילות נטו</p><p className={`font-black text-xl ${themeParams.primaryText}`}>{Math.floor(stats.activity/60)} ש' ו-{stats.activity%60} ד'</p></div>
                         <div className="w-px bg-slate-200 dark:bg-slate-700 h-10"></div>
                         <div><p className="text-[10px] uppercase font-bold text-slate-400 mb-1 tracking-widest">זמן בדרכים</p><p className="font-black text-xl text-blue-500 dark:text-blue-400">{Math.floor(stats.travel/60)} ש' ו-{stats.travel%60} ד'</p></div>
                     </div>
@@ -1097,14 +1242,12 @@ function TripApp() {
             </section>
           </div>
 
-          {/* Secondary Column */}
           <div className={`lg:col-span-4 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-8 ${activeTab !== 'schedule' ? 'block' : 'hidden lg:block'}`}>
             {!isKidsMode ? renderSecondaryPane() : (
                 <div className="h-full flex flex-col items-center justify-center text-center p-12 opacity-20 grayscale select-none"><Baby size={84} className="mb-6 text-slate-400"/><h3 className="text-2xl font-black text-slate-400">אזור מבוגרים</h3><p className="text-sm">צא ממצב ילדים כדי לראות עוד כלים</p></div>
             )}
           </div>
 
-          {/* Desktop Nav Column */}
           {!isKidsMode && (
               <div className="hidden lg:flex lg:col-span-1 flex-col items-center w-full">
                   <div className="sticky top-24 flex flex-col gap-4 items-center">
@@ -1118,7 +1261,7 @@ function TripApp() {
                               key={btn.id} 
                               title={btn.label} 
                               onClick={()=>setActiveTab(btn.id)} 
-                              className={`w-14 h-14 shrink-0 flex items-center justify-center rounded-2xl shadow-xl transition-all hover:scale-110 active:scale-95 ${activeTab===btn.id ? 'bg-indigo-600 text-white shadow-indigo-500/30 ring-4 ring-indigo-500/20' : 'bg-white dark:bg-slate-800 text-slate-400 border border-slate-100 dark:border-slate-700 hover:text-indigo-500'}`}
+                              className={`w-14 h-14 shrink-0 flex items-center justify-center rounded-2xl shadow-xl transition-all hover:scale-110 active:scale-95 ${activeTab===btn.id ? `${themeParams.primary} ${themeParams.shadow} ring-4 ${themeParams.ring.replace('focus:', '')}` : 'bg-white dark:bg-slate-800 text-slate-400 border border-slate-100 dark:border-slate-700 hover:text-slate-600 dark:hover:text-slate-200'}`}
                           >
                               {btn.icon}
                           </button>
@@ -1130,12 +1273,12 @@ function TripApp() {
       </main>
 
       {!isKidsMode && (
-        <nav className="fixed bottom-0 left-0 right-0 safe-bottom border-t border-slate-100 dark:border-slate-800 p-2 flex justify-around items-center z-40 backdrop-blur-xl bg-white/95 dark:bg-slate-900/95 lg:hidden">
-          <NavBtn active={activeTab === 'schedule'} icon={<Calendar />} label="לוז" onClick={() => setActiveTab('schedule')} />
-          <NavBtn active={activeTab === 'map'} icon={<Map />} label="מפה" onClick={() => setActiveTab('map')} />
-          <NavBtn active={activeTab === 'packing'} icon={<CheckSquare />} label="אריזה" onClick={() => setActiveTab('packing')} />
-          <NavBtn active={activeTab === 'vault'} icon={<Briefcase />} label="כספת" onClick={() => setActiveTab('vault')} />
-          <NavBtn active={activeTab === 'wallet'} icon={<Wallet />} label="ארנק" onClick={() => setActiveTab('wallet')} />
+        <nav className="fixed bottom-0 left-0 right-0 safe-bottom border-t border-slate-100 dark:border-slate-800 p-2 flex justify-around items-center z-40 backdrop-blur-xl bg-white/95 dark:bg-slate-900/95 lg:hidden relative">
+          <NavBtn active={activeTab === 'schedule'} themeParams={themeParams} icon={<Calendar />} label="לוז" onClick={() => setActiveTab('schedule')} />
+          <NavBtn active={activeTab === 'map'} themeParams={themeParams} icon={<Map />} label="מפה" onClick={() => setActiveTab('map')} />
+          <NavBtn active={activeTab === 'packing'} themeParams={themeParams} icon={<CheckSquare />} label="אריזה" onClick={() => setActiveTab('packing')} />
+          <NavBtn active={activeTab === 'vault'} themeParams={themeParams} icon={<Briefcase />} label="כספת" onClick={() => setActiveTab('vault')} />
+          <NavBtn active={activeTab === 'wallet'} themeParams={themeParams} icon={<Wallet />} label="ארנק" onClick={() => setActiveTab('wallet')} />
         </nav>
       )}
 
@@ -1154,9 +1297,9 @@ function TripApp() {
   );
 }
 
-function NavBtn({ icon, label, active, onClick }) {
+function NavBtn({ icon, label, active, onClick, themeParams }) {
   return (
-    <button onClick={onClick} className={`flex flex-col items-center gap-1 px-4 py-2 transition-all duration-300 ${active ? 'text-indigo-600 scale-110 font-black' : 'text-slate-400 hover:text-slate-600'}`}>
+    <button onClick={onClick} className={`flex flex-col items-center gap-1 px-4 py-2 transition-all duration-300 ${active ? `${themeParams.primaryText} scale-110 font-black` : 'text-slate-400 hover:text-slate-600'}`}>
       {React.cloneElement(icon, { size: 22, strokeWidth: active ? 2.5 : 2 })}
       <span className="text-[10px] font-black uppercase tracking-tight">{label}</span>
     </button>
