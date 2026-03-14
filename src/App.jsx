@@ -464,14 +464,18 @@ function TripApp() {
 
   useEffect(() => {
     if (themeMode === 'auto') {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              pos => setCurrentTheme(calculateIsDaylight(pos.coords.latitude, pos.coords.longitude) ? 'light' : 'dark'),
-              () => setCurrentTheme(new Date().getHours() >= 6 && new Date().getHours() < 19 ? 'light' : 'dark')
-            );
-        } else {
-            setCurrentTheme(new Date().getHours() >= 6 && new Date().getHours() < 19 ? 'light' : 'dark');
+        // הסטנדרט לדסקטופ ומובייל: האזנה להגדרות מערכת ההפעלה (Dark Mode ברמת ה-OS)
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        setCurrentTheme(mediaQuery.matches ? 'dark' : 'light');
+        
+        // מאזין לשינויים (אם המשתמש מחליף מצב בווינדוס/מאק, האפליקציה תגיב מיד)
+        const handleChange = (e) => setCurrentTheme(e.matches ? 'dark' : 'light');
+        if (mediaQuery.addEventListener) {
+            mediaQuery.addEventListener('change', handleChange);
         }
+        return () => {
+            if (mediaQuery.removeEventListener) mediaQuery.removeEventListener('change', handleChange);
+        };
     } else {
         setCurrentTheme(themeMode);
     }
