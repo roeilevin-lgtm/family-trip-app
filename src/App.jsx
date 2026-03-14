@@ -489,6 +489,28 @@ function TripApp() {
   };
 
   /**
+   * --- UNIFIED SYNC (Full Sync) ---
+   */
+  const handleFullSync = async () => {
+    if (!isOnline) {
+        showToast("נדרש חיבור לאינטרנט לסנכרון");
+        return;
+    }
+    setIsSyncing(true);
+    
+    // משיכת נתוני אקסל בצורה שקטה כדי לא להפריע לחיווי הסנכרון
+    await pullFromCloud(true); 
+    
+    if (sharedCalendarId && sharedCalendarId.trim() !== '') {
+        // אם מוגדר יומן, נסנכרן גם אותו (הפונקציה תכבה את הספינר בסיומה)
+        await syncFromGoogleCalendar();
+    } else {
+        showToast("סונכרן בהצלחה מול הענן");
+        setIsSyncing(false);
+    }
+  };
+
+  /**
    * --- INITIALIZATION & EFFECTS ---
    */
   useEffect(() => {
@@ -1088,7 +1110,7 @@ function TripApp() {
         
         <div className="flex items-center gap-2">
           {!isKidsMode && isOnline && (
-              <button onClick={() => pullFromCloud(false)} className={`p-2 ${themeParams.primaryText} hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors`} title="סנכרן נתונים מהענן">
+              <button onClick={handleFullSync} className={`p-2 ${themeParams.primaryText} hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors`} title="סנכרן נתונים ויומן">
                   <RefreshCw size={20} className={isSyncing ? 'animate-spin' : ''} />
               </button>
           )}
@@ -1100,7 +1122,8 @@ function TripApp() {
 
       <main className="flex-1 overflow-y-auto p-4 lg:p-6 pb-32 lg:pb-8 flex flex-col gap-6 lg:gap-8 max-w-[90rem] mx-auto w-full relative z-10">
         
-        <div className="w-full flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+        {/* Top Area: Days Bar & Weather */}
+        <div className="w-full flex flex-col lg:flex-row gap-4 items-stretch">
             <div className="flex-1 w-full flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-2 rounded-3xl shadow-inner overflow-x-auto no-scrollbar scroll-smooth border border-slate-50 dark:border-slate-900/50">
                 {!isTouchDevice && sortedDays.length > 3 && <button onClick={goToPrevDay} className={`p-2 ${themeParams.primaryText} hidden sm:block`}><ChevronRight size={20}/></button>}
                 {sortedDays.map((day) => (
@@ -1126,8 +1149,10 @@ function TripApp() {
             )}
         </div>
 
+        {/* Columns Area */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start flex-1 w-full">
           
+          {/* Schedule Column */}
           <div className={`lg:col-span-7 lg:border-l lg:border-slate-200 dark:lg:border-slate-800 lg:pl-8 ${activeTab === 'schedule' ? 'block' : 'hidden lg:block'}`}>
             <section className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -1146,7 +1171,6 @@ function TripApp() {
                     </div>
                     
                     <div className="flex items-center gap-2">
-                        {!isKidsMode && <button onClick={syncFromGoogleCalendar} className={`w-14 h-14 ${themeParams.primaryLight} rounded-2xl shadow-sm flex items-center justify-center transition-transform hover:scale-105 active:scale-95`} title="סנכרן מיומן גוגל"><Calendar size={24}/></button>}
                         {!isKidsMode && <button onClick={addActivity} className={`w-14 h-14 ${themeParams.primary} shadow-xl flex items-center justify-center active:scale-90 transition-transform hover:scale-110 ${themeParams.shadow}`} title="הוסף פעילות חדשה"><Plus size={32}/></button>}
                     </div>
                 </div>
